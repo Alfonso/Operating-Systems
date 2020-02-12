@@ -20,21 +20,8 @@ int main(int argc, char *argv[]) {
 
     // Remember to place your final calculated average time
     // per system call into the avg_time variable
-    int counter = 0;
     
-    struct timeval start, end;
-
-    gettimeofday(&start,NULL);
-
-    for(counter=0;counter<5000000;counter++){    
-        syscall(SYS_getuid);
-    }
-    gettimeofday(&end,NULL);
-
-    double elapsed = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-    avg_time = elapsed / 5000000;
-
-    printf("Average time per system call is %0.4f microseconds\n", avg_time);
+    printf("Average time per system call is %f microseconds\n", avg_time);
     
     return 0;
 }
