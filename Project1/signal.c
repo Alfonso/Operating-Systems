@@ -2,7 +2,7 @@
  *
  * Group Members Names and NetIDs:
  *   1. Alfonso Buono ajb393
- *   2.
+ *   2. Ali Mohamad aam345
  *
  * ILab Machine Tested on: kill
  *
@@ -19,8 +19,6 @@
 void segment_fault_handler(int signum) {
 
     printf("I am slain!\n");
-
-    printf("%p\n",&signum);
 
     *(&signum + 47) += 2;
 

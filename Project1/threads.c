@@ -1,7 +1,7 @@
 /* threads.c
  * Group Members Names and NetIDs:
  *  1. Alfonso Buono ajb393
- *  2.
+ *  2. Ali Mohamad aam345
  *
  * ILab Machine Tested on: kill
  *
