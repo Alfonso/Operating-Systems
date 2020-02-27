@@ -1,7 +1,7 @@
 // File:	rpthread_t.h
 
-// List all group member's name:
-// username of iLab:
+// List all group member's name: Alfonso Buono, Ali Mohamad
+// username of iLab: ajb393, aam345
 // iLab Server:
 
 #ifndef RTHREAD_T_H

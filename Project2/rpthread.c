@@ -1,8 +1,8 @@
 // File:	rpthread.c
 
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Alfonso Buono, Ali Mohamad
+// username of iLab: ajb393, aam345
+// iLab Server: kill
 
 #include "rpthread.h"
 
@@ -11,13 +11,12 @@
 
 
 /* create a new thread */
-int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, 
-                      void *(*function)(void*), void * arg) {
-       // Create Thread Control Block
-       // Create and initialize the context of this thread
-       // Allocate space of stack for this thread to run
-       // after everything is all set, push this thread int
-       // YOUR CODE HERE
+int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
+    // Create Thread Control Block
+    // Create and initialize the context of this thread
+    // Allocate space of stack for this thread to run
+    // after everything is all set, push this thread int
+    // YOUR CODE HERE
 	
     return 0;
 };
