@@ -11,6 +11,9 @@ ucontext_t cctx,fooctx,barctx;
 // 0 original, 1 for foo, 2 for bar
 int curContext = 0;
 
+#define INTERVAL 1000
+
+
 void foo(){
     for(;;){
         printf("foo\n");
@@ -25,30 +28,25 @@ void bar(){
 
 void ring(int signum){
     printf("RING RING! The timer has gone off\n");
-    
+ 
     if(curContext == 1){
-        setcontext(&barctx);
+        curContext = 2;
+        swapcontext(&fooctx, &barctx);
     }else if(curContext == 2){
-        setcontext(&fooctx);
+        curContext = 1;
+        swapcontext(&barctx, &fooctx);
     }
     
 }
 
 int main(int argc,char** argv){
-    struct sigaction sa;
-    memset (&sa, 0, sizeof (sa));
-    sa.sa_handler = &ring;
-    sigaction (SIGPROF, &sa, NULL);
+    signal(SIGPROF,ring); 
+    struct itimerval it_val;
+    it_val.it_value.tv_sec = INTERVAL/1000;
+    it_val.it_value.tv_usec = (INTERVAL*1000) % 1000000;
+    it_val.it_interval = it_val.it_value;
+    setitimer(ITIMER_PROF,&it_val,NULL);
 
-    struct itimerval timer;
-
-    timer.it_interval.tv_usec = 0; 
-    timer.it_interval.tv_sec = 0;
-
-    timer.it_value.tv_usec = 0;
-    timer.it_value.tv_sec = 1;
-
-    setitimer(ITIMER_PROF, &timer, NULL);
 
 
     if (getcontext(&fooctx) < 0){
@@ -82,7 +80,7 @@ int main(int argc,char** argv){
     fooctx.uc_stack.ss_flags=0;
 
     barctx.uc_link=NULL;
-    barctx.uc_stack.ss_sp=stack;
+    barctx.uc_stack.ss_sp=stackbar;
     barctx.uc_stack.ss_size= SIGSTKSZ;
     barctx.uc_stack.ss_flags=0;
     
