@@ -18,6 +18,33 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     // after everything is all set, push this thread int
     // YOUR CODE HERE
 	
+    // Create TCB
+    tcb* threadBlock = (tcb*) malloc(sizeof(tcb));
+   
+    // Create and initialize context
+    ucontext_t context;
+    getcontext(&context);    
+    // make stack
+    void *stack=malloc( SIGSTKSZ );
+    // set data in context
+    context.uc_link = NULL;
+    context.uc_stack.ss_sp = stack;
+    context.uc_stack.ss_size = SIGSTKSZ;
+    context.uc_stack.ss_flags = 0;
+    
+    // include parameters ?
+    makecontext( &context,(void(*)(void))function, 1,arg );
+    
+    // pthread_attr_init ??
+    
+
+    // set data in tcb?
+    
+    puts("Hi");
+   
+    // add the tcb into the runqueue
+    setcontext(&context);
+    
     return 0;
 };
 

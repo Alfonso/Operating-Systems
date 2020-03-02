@@ -11,6 +11,9 @@ ucontext_t cctx,fooctx,barctx;
 // 0 original, 1 for foo, 2 for bar
 int curContext = 0;
 
+// global timer
+struct itimerval it_val;
+
 #define INTERVAL 1000
 
 
@@ -41,10 +44,9 @@ void ring(int signum){
 
 int main(int argc,char** argv){
     signal(SIGPROF,ring); 
-    struct itimerval it_val;
     it_val.it_value.tv_sec = INTERVAL/1000;
     it_val.it_value.tv_usec = (INTERVAL*1000) % 1000000;
-    it_val.it_interval = it_val.it_value;
+    //it_val.it_interval = it_val.it_value;
     setitimer(ITIMER_PROF,&it_val,NULL);
 
 

@@ -2,12 +2,14 @@
 
 // List all group member's name: Alfonso Buono, Ali Mohamad
 // username of iLab: ajb393, aam345
-// iLab Server:
+// iLab Server: kill
 
 #ifndef RTHREAD_T_H
 #define RTHREAD_T_H
 
 #define _GNU_SOURCE
+
+#define QUANTUM 5
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_RTHREAD macro */
 #define USE_RTHREAD 1
@@ -18,8 +20,11 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ucontext.h>
 
 typedef uint rpthread_t;
+
+typedef enum status{running, ready, blocked} status;
 
 typedef struct threadControlBlock {
 	/* add important states in a thread control block */
@@ -31,6 +36,11 @@ typedef struct threadControlBlock {
 	// And more ...
 
 	// YOUR CODE HERE
+	int threadID;
+    status threadStatus;
+    ucontext_t context;
+    void* stack;
+    int priority;
 } tcb; 
 
 /* mutex struct definition */
