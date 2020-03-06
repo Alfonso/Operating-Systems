@@ -41,6 +41,7 @@ typedef struct threadControlBlock {
     ucontext_t context;
     void* stack;
     int priority;
+    struct threadControlBlock* next;
 } tcb; 
 
 /* mutex struct definition */

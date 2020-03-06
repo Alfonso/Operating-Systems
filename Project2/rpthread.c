@@ -9,6 +9,30 @@
 // INITAILIZE ALL YOUR VARIABLES HERE
 // YOUR CODE HERE
 
+// linked list pointers.                        NEED TO FIX ENQUEUE AND DEQUEUE
+tcb* runqueueH;
+tcb* runqueueT;
+
+// Global Schedule context                      NEED TO INITALIZE THIS AND SHIT
+ucontext_t schedCon;
+
+// print out linked list
+void printList(){
+    tcb* ptr = runqueueH;
+    while(ptr != runqueueT){
+        printf("%d->",ptr->threadID);
+        ptr = ptr->next;
+    }
+    printf("%d\n",ptr->threadID);
+}
+
+void enqueue(tcb* node){
+    return;
+}
+
+tcb* dequeue(){
+    return NULL;
+};
 
 /* create a new thread */
 int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
@@ -35,16 +59,37 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     // include parameters ?
     makecontext( &context,(void(*)(void))function, 1,arg );
     
-    // pthread_attr_init ??
+    // pthread_attr_init // dont have to do this
     
 
     // set data in tcb?
-    
-    puts("Hi");
+    threadBlock->threadID = 0; // ?
+    threadBlock->threadStatus = ready; // ?
+    threadBlock->context = context;
+    threadBlock->stack = stack;
+    threadBlock->priority = 0; //?
    
     // add the tcb into the runqueue
-    setcontext(&context);
-    
+    //setcontext(&context);
+    if(runqueueH == NULL){
+        runqueueH = (tcb*) malloc( sizeof( tcb ) );
+        runqueueT = (tcb*) malloc( sizeof( tcb ) );
+
+        runqueueH->threadID = -1;
+        runqueueH->next = runqueueT;
+
+        runqueueT->threadID = -1;
+        runqueueT->next = runqueueH;
+        puts("first time calling pthread_create");
+    }
+
+    puts("pthread_create");
+    if(runqueueT->next == runqueueH){
+        runqueueT->next = threadBlock;
+    }
+    threadBlock->next = runqueueH->next;
+    runqueueH->next = threadBlock;
+
     return 0;
 };
 
@@ -56,6 +101,13 @@ int rpthread_yield() {
 	// switch from thread context to scheduler context
 
 	// YOUR CODE HERE
+
+    // change the information in the thread calling yield()
+    currThread->status = ready;
+    
+    // swap context (saves curr context into the element that was just pushed into queue)
+    swapcontext( &(currThread->context), &schedCont );
+	
 	return 0;
 };
 
@@ -64,6 +116,9 @@ void rpthread_exit(void *value_ptr) {
 	// Deallocated any dynamic memory created when starting this thread
 
 	// YOUR CODE HERE
+    
+    // we need to deallocate the stack?
+    // how do we get access to the correct thread / tcb to stop?
 };
 
 
