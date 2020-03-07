@@ -9,12 +9,16 @@
 // INITAILIZE ALL YOUR VARIABLES HERE
 // YOUR CODE HERE
 
-// linked list pointers.                        NEED TO FIX ENQUEUE AND DEQUEUE
+// linked list pointers.                    
 tcb* runqueueH;
 tcb* runqueueT;
+tcb* currThread;
 
 // Global Schedule context                      NEED TO INITALIZE THIS AND SHIT
-ucontext_t schedCon;
+ucontext_t schedCont;
+
+// thread id counter
+rpthread_t threadCounter = 1;
 
 // print out linked list
 void printList(){
@@ -27,12 +31,73 @@ void printList(){
 }
 
 void enqueue(tcb* node){
+    // check if this is the first time // head and tail getting initialized
+    if(runqueueH == NULL){
+        runqueueH = (tcb*) malloc( sizeof( tcb ) );
+        runqueueT = (tcb*) malloc( sizeof( tcb ) );
+
+        runqueueH->threadID = -1;
+        runqueueH->next = runqueueT;
+        runqueueH->prev = NULL;
+
+        runqueueT->threadID = -1;
+        runqueueT->prev = runqueueH;
+        runqueueT->next = NULL;
+        puts("first time calling pthread_create");
+    }
+    
+    // check if the list is empty (besides head and tail)
+    if(runqueueT->prev == runqueueH){
+        runqueueT->prev = node;
+    }
+
+    // set the new nodes prev and next
+    node->prev = runqueueH;
+    node->next = runqueueH->next;
+    // change the previous first nodes data
+    (node->next)->prev = node;
+    // change the heads data
+    runqueueH->next = node;
+
     return;
 }
 
 tcb* dequeue(){
-    return NULL;
+    
+    // check if there is anything in the list
+    if( runqueueT->prev == runqueueH ){
+        // there is nothing in the list to dequeue
+        return NULL;
+    }
+
+    // get access to the node we want to dequeue
+    tcb* node = runqueueT->prev;
+    // change values of node's prev
+    (node->prev)->next = node->next;
+    // change values of tail
+    runqueueT->prev = node->prev;
+    // set node's values to NULL                DO I NEED THIS?
+    node->prev = NULL;
+    node->next = NULL;
+
+    return node;
 };
+
+tcb* findTCB( rpthread_t thread ){
+    // search through our linked list
+
+    return NULL;
+}
+
+// returns 1 if it is empty
+// returns 0 if it is not empty
+int isEmpty(){
+    return runqueueH->next == runqueueT;
+}
+
+void sig_handler(int signum){
+
+}
 
 /* create a new thread */
 int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
@@ -60,36 +125,18 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     makecontext( &context,(void(*)(void))function, 1,arg );
     
     // pthread_attr_init // dont have to do this
-    
 
     // set data in tcb?
-    threadBlock->threadID = 0; // ?
+    threadBlock->threadID = threadCounter++; // ?
     threadBlock->threadStatus = ready; // ?
     threadBlock->context = context;
     threadBlock->stack = stack;
     threadBlock->priority = 0; //?
    
     // add the tcb into the runqueue
-    //setcontext(&context);
-    if(runqueueH == NULL){
-        runqueueH = (tcb*) malloc( sizeof( tcb ) );
-        runqueueT = (tcb*) malloc( sizeof( tcb ) );
-
-        runqueueH->threadID = -1;
-        runqueueH->next = runqueueT;
-
-        runqueueT->threadID = -1;
-        runqueueT->next = runqueueH;
-        puts("first time calling pthread_create");
-    }
+    enqueue( threadBlock );
 
     puts("pthread_create");
-    if(runqueueT->next == runqueueH){
-        runqueueT->next = threadBlock;
-    }
-    threadBlock->next = runqueueH->next;
-    runqueueH->next = threadBlock;
-
     return 0;
 };
 
@@ -103,7 +150,7 @@ int rpthread_yield() {
 	// YOUR CODE HERE
 
     // change the information in the thread calling yield()
-    currThread->status = ready;
+    currThread->threadStatus = ready;
     
     // swap context (saves curr context into the element that was just pushed into queue)
     swapcontext( &(currThread->context), &schedCont );
@@ -118,7 +165,18 @@ void rpthread_exit(void *value_ptr) {
 	// YOUR CODE HERE
     
     // we need to deallocate the stack?
-    // how do we get access to the correct thread / tcb to stop?
+    // do we have a currThread ptr to deallocate it?
+    free( currThread->stack );
+    
+    // set the thread status to terminate?
+    currThread->threadStatus = terminated;
+
+    // Something with the value_ptr?                        What is this
+
+    // return back to the scheduler?                        Do I need to do this?
+    setcontext( &schedCont );
+
+    return;
 };
 
 
@@ -127,7 +185,17 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
 	
 	// Wait for a specific thread to terminate
 	// De-allocate any dynamic memory created by the joining thread
-  
+ 
+    // find the tcb associated to thread
+    tcb* temp = findTCB( thread );
+
+    // infinitely loop to block thread that called this until thread passed into parameters is terminated
+    while( temp->threadStatus != terminated ){
+    }
+
+    // deallocate memory
+    free( temp->stack );
+
 	// YOUR CODE HERE
 	return 0;
 };
@@ -186,13 +254,50 @@ static void schedule() {
 
 	// YOUR CODE HERE
 
+    // set the signal handler
+    signal(SIGPROF,sig_handler);
+    struct itimerval it_val;
+    it_val.it_value.tv_sec = INTERVAL/1000;
+    it_val.it_value.tv_usec = (INTERVAL*1000) % 1000000;
+    
+    // activate timer
+    setitimer(ITIMER_PROF,&it_val,NULL);
+
+
+    tcb* nextThread;
+
+    while( isEmpty() != 1 ){
+        // check which scheduling algo we are using
+
+        // start the timer
+
+        // swap context
+        
+        // do we put the thread back into the runqueue?
+        
+        // 
+
+    }
+/*
 // schedule policy
 #ifndef MLFQ
 	// Choose STCF
+	//sched = STCF;
+#else
+#ifndef FCFS
+    // Choose FCFS
+    //sched = FCFS;
 #else 
 	// Choose MLFQ
+	//sched = MLFQ;
 #endif
+*/
+}
 
+/* non-preemptyive FCFS scheduling algorithm */
+static tcb* sched_fcfs(){
+    // Used to test our threading functions
+    return dequeue();
 }
 
 /* Preemptive SJF (STCF) scheduling algorithm */

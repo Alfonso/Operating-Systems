@@ -24,7 +24,7 @@
 
 typedef uint rpthread_t;
 
-typedef enum status{running, ready, blocked} status;
+typedef enum status{ running, ready, blocked, terminated } status;
 
 typedef struct threadControlBlock {
 	/* add important states in a thread control block */
@@ -36,12 +36,13 @@ typedef struct threadControlBlock {
 	// And more ...
 
 	// YOUR CODE HERE
-	int threadID;
+	rpthread_t threadID;
     status threadStatus;
     ucontext_t context;
     void* stack;
     int priority;
     struct threadControlBlock* next;
+    struct threadControlBlock* prev;
 } tcb; 
 
 /* mutex struct definition */
