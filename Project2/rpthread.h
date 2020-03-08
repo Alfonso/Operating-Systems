@@ -9,7 +9,8 @@
 
 #define _GNU_SOURCE
 
-#define QUANTUM 5
+#define INTERVAL 1000
+
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_RTHREAD macro */
 #define USE_RTHREAD 1
@@ -18,9 +19,12 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
+#include <signal.h>
+#include <string.h>
 
 typedef uint rpthread_t;
 
@@ -60,6 +64,17 @@ typedef struct rpthread_mutex_t {
 
 /* Function Declarations: */
 
+/*      Private functions created       */
+static void sched_rr();
+void sched_context_create();
+void printList();
+void enqueue(tcb*);
+tcb* dequeue();
+tcb* findTCB(rpthread_t);
+int isEmpty();
+void sig_handler(int);
+
+
 /* create a new thread */
 int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void
     *(*function)(void*), void * arg);
@@ -85,6 +100,12 @@ int rpthread_mutex_unlock(rpthread_mutex_t *mutex);
 
 /* destroy the mutex */
 int rpthread_mutex_destroy(rpthread_mutex_t *mutex);
+
+static void schedule();
+
+static void sched_stcf();
+
+static void sched_mlfq();
 
 #ifdef USE_RTHREAD
 #define pthread_t rpthread_t
