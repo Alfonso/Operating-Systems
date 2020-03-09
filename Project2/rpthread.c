@@ -22,7 +22,7 @@ ucontext_t schedCont;
 int initialSched = 0;
 
 // thread id counter
-rpthread_t threadCounter = 1;
+rpthread_t threadCounter = 2;
 
 // global timer
 struct itimerval it_val;
@@ -63,15 +63,12 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     threadBlock->priority = 0; //?
   
     *thread = threadBlock->threadID;
- 
     // add the tcb into the runqueue
-    enqueue( threadBlock );
+    enqueue( threadBlock, 0 );
 
-    puts("Created Thread");
 
     // make scheduler context
     if( initialSched == 0 ){
-        puts("A;LKDSJFA;SJF;ASJF;ASLKJFD");
         sched_context_create();
     }
 
@@ -105,12 +102,22 @@ void rpthread_exit(void *value_ptr) {
     
     // we need to deallocate the stack?
     // do we have a currThread ptr to deallocate it?
-    free( currThread->stack );
+    //free( currThread->stack );
     
     // set the thread status to terminate?
     currThread->threadStatus = terminated;
 
+    printf("exit(): Thread exiting: %u, status: %d\n",currThread->threadID,currThread->threadStatus);
+
     // Something with the value_ptr?                        What is this
+
+/*   
+    // turn the timer off
+    it_val.it_value.tv_sec = 0;
+    it_val.it_value.tv_usec = 0;
+    setitimer(ITIMER_PROF,&it_val,NULL);
+    puts("exit(): turned timer off going back to sched");
+*/
 
     // return back to the scheduler?                        Do I need to do this?
     setcontext( &schedCont );
@@ -126,15 +133,18 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
 	// De-allocate any dynamic memory created by the joining thread
  
     // find the tcb associated to thread
-    tcb* temp = findTCB( thread );
-
+    tcb* temp = findTCB( thread, -1 );
+    printf("join(): searching for: %u\n",thread);
     // infinitely loop to block thread that called this until thread passed into parameters is terminated
     while( temp->threadStatus != terminated ){
     }
+    puts("join(): In join after while");
 
+/*
     // deallocate memory
-    free( temp->stack );
-
+    if( temp->stack )
+        free( temp->stack );
+*/
 	// YOUR CODE HERE
 	return 0;
 };
@@ -217,12 +227,13 @@ static void schedule() {
             sched_mlfq();
         #endif
         */
-        printf("before: ");
+        printf("sched(): before: ");
         printList();
         sched_rr();
-        printf("Switching threads to: %u\n",currThread->threadID);
+        printf("    Switching threads to: %u   ",currThread->threadID);
         printf("After: ");
         printList();
+        puts("");
 
         // start the timer
         setitimer(ITIMER_PROF,&it_val,NULL);
@@ -232,7 +243,11 @@ static void schedule() {
    
         // do we put the thread back into the runqueue? have to check if its terminated or not?
         if(currThread->threadStatus != terminated){
-            enqueue( currThread );
+            printf("sched(): Adding %u to Runqueue\n", currThread->threadID);
+            enqueue( currThread, 0 );
+        }else if(currThread->threadStatus == terminated){
+            printf("sched(): Adding %u to terminated\n", currThread->threadID);
+            enqueue( currThread, -1 );
         }
 
     }
@@ -241,7 +256,7 @@ static void schedule() {
 /* non-preemptive FCFS scheduling algorithm */
 static void sched_rr(){
     // Used to test our threading functions
-    currThread = dequeue();
+    currThread = dequeue(0);
 }
 
 /* Preemptive SJF (STCF) scheduling algorithm */
@@ -269,7 +284,6 @@ static void sched_mlfq() {
 // Called once
 void sched_context_create(){
     initialSched = 1;
-    puts("Making sched Cont");
     // This is making the global schedule context
     getcontext(&schedCont);
     void *schedStack=malloc( SIGSTKSZ);
@@ -282,14 +296,14 @@ void sched_context_create(){
     // keep track of the main context and putit in the linked list
     // create a tcb and store it in their?
     tcb* mainTCB = (tcb*) malloc( sizeof( tcb ) );
-    mainTCB->threadID = 0;
+    mainTCB->threadID = 1;
     // we dont have access to the stack of main                 Is this okay?
     mainTCB->stack = NULL;
     // Have to set the prioirty of this. Do we set it as high as possible?  IS this okay?
     mainTCB->priority = 0;
+    mainTCB->threadStatus = ready;
     // enqueue it into the runqueue
-    enqueue(mainTCB);
-    printf("We are in context create: ");
+    enqueue( mainTCB, 0 );
     
     ucontext_t mainCon;
     getcontext( &mainCon );
@@ -302,73 +316,129 @@ void sched_context_create(){
 void printList(){
     tcb* ptr = runqueueH;
     while(ptr != runqueueT){
-        printf("%d->",ptr->threadID);
+        printf("%u->",ptr->threadID);
         ptr = ptr->next;
     }
-    printf("%d\n",ptr->threadID);
+    printf("%u",ptr->threadID);
 }
 
-void enqueue(tcb* node){
-    // check if this is the first time // head and tail getting initialized
-    if(runqueueH == NULL){
-        runqueueH = (tcb*) malloc( sizeof( tcb ) );
-        runqueueT = (tcb*) malloc( sizeof( tcb ) );
+void enqueue(tcb* node,int queue){
+    //check which queue Im adding it to:
+    if( queue == 0){
+        // traditional runqueue
+        // check if this is the first time // head and tail getting initialized
+        if(runqueueH == NULL){
+            runqueueH = (tcb*) malloc( sizeof( tcb ) );
+            runqueueT = (tcb*) malloc( sizeof( tcb ) );
 
-        runqueueH->threadID = -1;
-        runqueueH->next = runqueueT;
-        runqueueH->prev = NULL;
+            runqueueH->threadID = 0;
+            runqueueH->next = runqueueT;
+            runqueueH->prev = NULL;
 
-        runqueueT->threadID = -1;
-        runqueueT->prev = runqueueH;
-        runqueueT->next = NULL;
+            runqueueT->threadID = 0;
+            runqueueT->prev = runqueueH;
+            runqueueT->next = NULL;
 
-        // create head node for the terminated linked list
-        terminatedH = (tcb*) malloc( sizeof( tcb ) );
-        terminatedH->threadID = -1;
-        terminatedH->next = NULL;
-        terminatedH->prev = NULL;
-    }
+            // create head node for the terminated linked list
+            terminatedH = (tcb*) malloc( sizeof( tcb ) );
+            terminatedH->threadID = 0;
+            terminatedH->next = NULL;
+            terminatedH->prev = NULL;
+        }
     
-    // check if the list is empty (besides head and tail)
-    if(runqueueT->prev == runqueueH){
-        runqueueT->prev = node;
+        // check if the list is empty (besides head and tail)
+        if(runqueueT->prev == runqueueH){
+            runqueueT->prev = node;
+        }
+
+        // set the new nodes prev and next
+        node->prev = runqueueH;
+        node->next = runqueueH->next;
+        // change the previous first nodes data
+        (node->next)->prev = node;
+        // change the heads data
+        runqueueH->next = node;
+    }else if( queue == -1){
+        // add to terminated queue
+        node->prev = terminatedH;
+        node->next = terminatedH->next;
+        // check if the prev first terminated exists
+        if(terminatedH->next){
+            // if it does, change its prev to the new front
+            (terminatedH->next)->prev = node;
+        }
+        // change the head of terminated
+        terminatedH->next = node;
     }
-
-    // set the new nodes prev and next
-    node->prev = runqueueH;
-    node->next = runqueueH->next;
-    // change the previous first nodes data
-    (node->next)->prev = node;
-    // change the heads data
-    runqueueH->next = node;
-
     return;
 }
 
-tcb* dequeue(){
+tcb* dequeue(int queue){
+    // what queue are we dequeing from
+    if( queue == 0 ){
+        // runqeueu
+        // check if there is anything in the list
+        if( runqueueT->prev == runqueueH ){
+            // there is nothing in the list to dequeue
+            return NULL;
+        }
+
+        // get access to the node we want to dequeue
+        tcb* node = runqueueT->prev;
+        // change values of node's prev
+        (node->prev)->next = node->next;
+        // change values of tail
+        runqueueT->prev = node->prev;
+        // set node's values to NULL                DO I NEED THIS?
+        node->prev = NULL;
+        node->next = NULL;
+
+        return node;
+    }else if( queue == -1 ){
+        // terminated queue
+        if( terminatedH->next == NULL )
+            return NULL;
+        tcb* node = terminatedH;
+        // get to the last terminated node
+        while( node->next != NULL ){
+            node = node->next;
+        }
     
-    // check if there is anything in the list
-    if( runqueueT->prev == runqueueH ){
-        // there is nothing in the list to dequeue
-        return NULL;
+        // if only node is the head return null
+        if(terminatedH == node)
+            return NULL;
+
+        return node;
+
     }
-
-    // get access to the node we want to dequeue
-    tcb* node = runqueueT->prev;
-    // change values of node's prev
-    (node->prev)->next = node->next;
-    // change values of tail
-    runqueueT->prev = node->prev;
-    // set node's values to NULL                DO I NEED THIS?
-    node->prev = NULL;
-    node->next = NULL;
-
-    return node;
+    return NULL;
 };
 
-tcb* findTCB( rpthread_t thread ){
-    // search through our linked list
-
+tcb* findTCB( rpthread_t thread, int queue ){
+    // search through our runqueue
+    //if( queue == 0 ){
+        puts("findTCB(): looking in runqueue");
+        tcb* temp = runqueueH;
+        while(temp){
+            if(temp->threadID == thread){
+                return temp;
+            }
+            temp = temp->next;
+        }
+    //}else if( queue == -1 ){
+        // search through our terminated
+        puts("findTCB(): looking in terminated");
+        //tcb* temp = terminatedH;
+        temp = terminatedH;
+        while(temp){
+            if(temp->threadID == thread)
+                return temp;
+            temp = temp->next;
+        }
+    //}
+    puts("findTCB(): uh oh found in neither");
+    printList();
+    puts("");
     return NULL;
 }
 
@@ -380,7 +450,7 @@ int isEmpty(){
 
 void sig_handler(int signum){
     if(signum == SIGPROF){
-        puts("SWITCHING BACK TO THE SCHEDULER NOW OKAY?");
+        puts("sighand(): Switching back to sched");
         swapcontext( &(currThread->context), &schedCont );
     }
 }

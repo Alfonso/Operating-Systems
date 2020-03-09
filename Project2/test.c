@@ -4,26 +4,29 @@
 
 void* testFunc(void* params){
 
-    puts("in test func");
+    puts("main(): in test func");
 
-    while(1){
+    //while(1){
         //puts("testFunc1");
-    }
+    //}
+    rpthread_exit(NULL);
     return 0;
 }
 
 void* testFunc2(void* params){
 
-    puts("in test func2");
+    puts("main(): in test func2");
 
     while(1){
         //puts("testFunc2");
     }
+    
+    rpthread_exit(NULL);
     return 0;
 }
 
 void* testFunc3(void* params){
-    puts("in test func3");
+    puts("main(): in test func3");
 
     while(1){
 
@@ -36,20 +39,22 @@ int main(int argc,char** argv){
 
     rpthread_t test, test2, test3;
 
-    puts("beore 1st create");
+    puts("main(): beore 1st create");
     rpthread_create(&test,NULL, testFunc,NULL);
-    puts("after 1st create");
+    puts("main(): after 1st create");
     rpthread_create(&test2,NULL,testFunc2,NULL);
-    puts("after 2nd create");
+    puts("main(): after 2nd create");
     
-    int counter = 0;
-    while(counter < 1000000000){
-        counter++;
+    rpthread_join(test,NULL);
+
+    puts("main(): we are after 1st join");
+
+    rpthread_join(test2,NULL);
+/*
+    while(1){
+
     }
-    counter = 0;
-    while(counter < 1000000000){
-        counter++;
-    }
+*/
 /*
  * Test to see if linked list is working
     printf("first list: ");

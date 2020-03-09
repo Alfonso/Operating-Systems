@@ -68,9 +68,9 @@ typedef struct rpthread_mutex_t {
 static void sched_rr();
 void sched_context_create();
 void printList();
-void enqueue(tcb*);
-tcb* dequeue();
-tcb* findTCB(rpthread_t);
+void enqueue(tcb*,int);
+tcb* dequeue(int);
+tcb* findTCB(rpthread_t, int);
 int isEmpty();
 void sig_handler(int);
 
