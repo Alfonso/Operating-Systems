@@ -39,18 +39,17 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     tcb* threadBlock = (tcb*) malloc(sizeof(tcb));
    
     // Create and initialize context
-    ucontext_t context;
-    getcontext(&context);    
+    getcontext(&(threadBlock->context));
     // make stack
     void *stack=malloc( SIGSTKSZ );
     // set data in context
-    context.uc_link = NULL;
-    context.uc_stack.ss_sp = stack;
-    context.uc_stack.ss_size = SIGSTKSZ;
-    context.uc_stack.ss_flags = 0;
+    threadBlock->context.uc_link = NULL;
+    threadBlock->context.uc_stack.ss_sp = stack;
+    threadBlock->context.uc_stack.ss_size = SIGSTKSZ;
+    threadBlock->context.uc_stack.ss_flags = 0;
     
     // include parameters ?
-    makecontext( &context,(void(*)(void))function, 1,arg );
+    makecontext( &(threadBlock->context),(void(*)(void))function, 1,arg );
     
     // pthread_attr_init // dont have to do this
 
@@ -58,7 +57,6 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     threadBlock->threadID = threadCounter; // ?
     threadCounter += 1;
     threadBlock->threadStatus = ready; // ?
-    threadBlock->context = context;
     threadBlock->stack = stack;
     threadBlock->priority = 0; //?
   
@@ -85,6 +83,13 @@ int rpthread_yield() {
 
 	// YOUR CODE HERE
 
+    // turn the timer off
+    struct itimerval zero;
+    zero.it_value.tv_sec = 0;
+    zero.it_value.tv_usec = 0;
+    setitimer(ITIMER_PROF,&zero,NULL);
+    printf("yield(): Thread: %u is giving up control\n",currThread->threadID);
+    
     // change the information in the thread calling yield()
     currThread->threadStatus = ready;
     
@@ -111,13 +116,14 @@ void rpthread_exit(void *value_ptr) {
 
     // Something with the value_ptr?                        What is this
 
-/*   
+ 
     // turn the timer off
-    it_val.it_value.tv_sec = 0;
-    it_val.it_value.tv_usec = 0;
-    setitimer(ITIMER_PROF,&it_val,NULL);
+    struct itimerval zero;
+    zero.it_value.tv_sec = 0;
+    zero.it_value.tv_usec = 0;
+    setitimer(ITIMER_PROF,&zero,NULL);
     puts("exit(): turned timer off going back to sched");
-*/
+
 
     // return back to the scheduler?                        Do I need to do this?
     setcontext( &schedCont );
@@ -230,6 +236,7 @@ static void schedule() {
         printf("sched(): before: ");
         printList();
         sched_rr();
+        currThread->threadStatus = running;
         printf("    Switching threads to: %u   ",currThread->threadID);
         printf("After: ");
         printList();
@@ -240,9 +247,10 @@ static void schedule() {
         
         // swap context
         swapcontext( &schedCont, &(currThread->context) );
-   
+    
         // do we put the thread back into the runqueue? have to check if its terminated or not?
         if(currThread->threadStatus != terminated){
+            currThread->threadStatus = ready;
             printf("sched(): Adding %u to Runqueue\n", currThread->threadID);
             enqueue( currThread, 0 );
         }else if(currThread->threadStatus == terminated){
@@ -305,11 +313,9 @@ void sched_context_create(){
     // enqueue it into the runqueue
     enqueue( mainTCB, 0 );
     
-    ucontext_t mainCon;
-    getcontext( &mainCon );
-    mainTCB->context = mainCon;
+    getcontext( &(mainTCB->context) );
     
-    swapcontext(&mainCon, &schedCont);
+    swapcontext(&(mainTCB->context), &schedCont);
 }
 
 // print out linked list
@@ -417,26 +423,26 @@ tcb* dequeue(int queue){
 tcb* findTCB( rpthread_t thread, int queue ){
     // search through our runqueue
     //if( queue == 0 ){
-        puts("findTCB(): looking in runqueue");
-        tcb* temp = runqueueH;
-        while(temp){
-            if(temp->threadID == thread){
-                return temp;
-            }
-            temp = temp->next;
+        //puts("findTCB(): looking in runqueue");
+    tcb* temp = runqueueH;
+    while(temp){
+        if(temp->threadID == thread){
+            return temp;
         }
+        temp = temp->next;
+    }
     //}else if( queue == -1 ){
         // search through our terminated
-        puts("findTCB(): looking in terminated");
+        //puts("findTCB(): looking in terminated");
         //tcb* temp = terminatedH;
-        temp = terminatedH;
-        while(temp){
-            if(temp->threadID == thread)
-                return temp;
-            temp = temp->next;
-        }
+    temp = terminatedH;
+    while(temp){
+        if(temp->threadID == thread)
+            return temp;
+        temp = temp->next;
+    }
     //}
-    puts("findTCB(): uh oh found in neither");
+    //puts("findTCB(): uh oh found in neither");
     printList();
     puts("");
     return NULL;

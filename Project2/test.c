@@ -17,9 +17,10 @@ void* testFunc2(void* params){
 
     puts("main(): in test func2");
 
-    while(1){
+    //while(1){
         //puts("testFunc2");
-    }
+    //}
+    rpthread_yield();
     
     rpthread_exit(NULL);
     return 0;
@@ -42,19 +43,20 @@ int main(int argc,char** argv){
     puts("main(): beore 1st create");
     rpthread_create(&test,NULL, testFunc,NULL);
     puts("main(): after 1st create");
+
     rpthread_create(&test2,NULL,testFunc2,NULL);
     puts("main(): after 2nd create");
     
     rpthread_join(test,NULL);
 
     puts("main(): we are after 1st join");
-
+    
     rpthread_join(test2,NULL);
-/*
+
     while(1){
 
     }
-*/
+
 /*
  * Test to see if linked list is working
     printf("first list: ");
