@@ -9,7 +9,7 @@
 
 #define _GNU_SOURCE
 
-#define INTERVAL 1000
+#define INTERVAL 50
 
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_RTHREAD macro */
@@ -47,6 +47,9 @@ typedef struct threadControlBlock {
     int priority;
     struct threadControlBlock* next;
     struct threadControlBlock* prev;
+    struct threadControlBlock* Mnext;
+    struct threadControlBlock* Mprev;
+    void* retval;
 } tcb; 
 
 /* mutex struct definition */
@@ -54,6 +57,12 @@ typedef struct rpthread_mutex_t {
 	/* add something here */
 
 	// YOUR CODE HERE
+    tcb* owner;
+    tcb* queueH;
+    tcb* queueT;
+    volatile int isLocked;
+    
+
 } rpthread_mutex_t;
 
 /* define your data structures here: */

@@ -12,12 +12,16 @@
 // linked list pointers.                    
 tcb* runqueueH;
 tcb* runqueueT;
+
 tcb* terminatedH;
+
+//                                              NEED TO DO THIS SHIT
+tcb* blockedH;
 
 // Global current thread counter
 tcb* currThread;
 
-// Global Schedule context                      NEED TO INITALIZE THIS AND SHIT
+// Global Schedule context
 ucontext_t schedCont;
 int initialSched = 0;
 
@@ -26,6 +30,7 @@ rpthread_t threadCounter = 2;
 
 // global timer
 struct itimerval it_val;
+struct itimerval it_zero;
 
 /* create a new thread */
 int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
@@ -84,10 +89,7 @@ int rpthread_yield() {
 	// YOUR CODE HERE
 
     // turn the timer off
-    struct itimerval zero;
-    zero.it_value.tv_sec = 0;
-    zero.it_value.tv_usec = 0;
-    setitimer(ITIMER_PROF,&zero,NULL);
+    setitimer(ITIMER_PROF,&it_zero,NULL);
     printf("yield(): Thread: %u is giving up control\n",currThread->threadID);
     
     // change the information in the thread calling yield()
@@ -115,13 +117,13 @@ void rpthread_exit(void *value_ptr) {
     printf("exit(): Thread exiting: %u, status: %d\n",currThread->threadID,currThread->threadStatus);
 
     // Something with the value_ptr?                        What is this
-
+    // What ever you pass to pthread exit, wwhoever passes pthread_join
+    if(value_ptr){
+        currThread->retval = value_ptr;
+    } 
  
     // turn the timer off
-    struct itimerval zero;
-    zero.it_value.tv_sec = 0;
-    zero.it_value.tv_usec = 0;
-    setitimer(ITIMER_PROF,&zero,NULL);
+    setitimer(ITIMER_PROF,&it_zero,NULL);
     puts("exit(): turned timer off going back to sched");
 
 
@@ -146,6 +148,11 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
     }
     puts("join(): In join after while");
 
+
+    // check if user wants a retval
+    if(value_ptr){
+        *value_ptr = (temp->retval);
+    }
 /*
     // deallocate memory
     if( temp->stack )
@@ -159,20 +166,68 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
 int rpthread_mutex_init(rpthread_mutex_t *mutex, 
                           const pthread_mutexattr_t *mutexattr) {
 	//Initialize data structures for this mutex
-
+    
 	// YOUR CODE HERE
-	return 0;
+	
+    if(mutex == NULL)
+        return -1;
+    //                                                                          DO I NEED TO MALLOC THIS
+    *mutex = *((rpthread_mutex_t*) malloc(sizeof( rpthread_mutex_t )));
+    
+    // Create a head and a tail
+    mutex->queueH = (tcb*) malloc( sizeof( tcb ) );
+    mutex->queueT = (tcb*) malloc( sizeof( tcb ) );
+    (mutex->queueH)->Mnext = mutex->queueT;
+    (mutex->queueT)->Mprev = mutex->queueH;
+
+
+    mutex->isLocked = 0;
+    mutex->owner = NULL;
+    
+    return 0;
 };
 
 /* aquire the mutex lock */
 int rpthread_mutex_lock(rpthread_mutex_t *mutex) {
-        // use the built-in test-and-set atomic function to test the mutex
-        // When the mutex is acquired successfully, enter the critical section
-        // If acquiring mutex fails, push current thread into block list and 
-        // context switch to the scheduler thread
+    // use the built-in test-and-set atomic function to test the mutex
+    // When the mutex is acquired successfully, enter the critical section
+    // If acquiring mutex fails, push current thread into block list and 
+    // context switch to the scheduler thread
 
-        // YOUR CODE HERE
-        return 0;
+    // YOUR CODE HERE
+    // use test and set bc its atomic (dont want the possibility of a thread switching
+    while( __sync_lock_test_and_set( &(mutex->isLocked), 1 ) == 1  ){
+        puts("lock(): Youre blocked bitch");
+
+        // check to see if there are any tcbs waiting to use the mutex
+//        if( (mutex->queueH)->Mnext != mutex->queueT ){
+            // there is something in the queue waiting. Add this to front
+            
+            currThread->Mnext = mutex->queueH->Mnext;
+            currThread->Mprev = mutex->queueH;
+            
+            mutex->queueH->Mnext = currThread;
+            
+            (currThread->Mnext)->Mprev = currThread;
+/*            
+        }else{
+            // there is nothing there.
+            mutex->queueH->Mnext = currThread;
+            
+            currThread->Mprev = mutex->queueH;
+            currThread->Mnext = mutex->queueT;
+    
+            mutex->queueT->Mprev = currThread;
+        }
+*/
+        currThread->threadStatus = blocked;
+        swapcontext( &(currThread->context), &(schedCont) );
+    }
+
+    // set owner so we know if the correct thread is unlocking
+    mutex->owner = currThread;
+
+    return 0;
 };
 
 /* release the mutex lock */
@@ -182,13 +237,45 @@ int rpthread_mutex_unlock(rpthread_mutex_t *mutex) {
 	// so that they could compete for mutex later.
 
 	// YOUR CODE HERE
-	return 0;
+	
+    // check if the person calling this actually owns the mutex
+    if(mutex->owner == currThread){
+        // set the flag to 0
+        mutex->isLocked = 0;
+        mutex->owner = NULL;
+        
+        // check if there is a wait queue
+        if( (mutex->queueH)->Mnext != mutex->queueT){
+            // pick the next thread that gets access
+            tcb* temp = (mutex->queueT)->Mprev;
+        
+            // remove the next thread from mutex list
+            (temp->prev)->Mnext = mutex->queueT;
+
+            // remove the next thread from block queue
+            (temp->prev)->next = temp->next;
+            (temp->next)->prev = temp->prev;
+            // change its status to ready so scheduler will add it to the runqueue
+            temp->threadStatus = ready;
+        }
+    }else{
+        puts("You do not have access to this mutex");
+        return -1;
+    }
+
+
+    return 0;
 };
 
 
 /* destroy the mutex */
 int rpthread_mutex_destroy(rpthread_mutex_t *mutex) {
 	// Deallocate dynamic memory created in rpthread_mutex_init
+
+    // check if the person destroying has access to mutex
+    if( currThread == mutex->owner ){
+        
+    }
 
 	return 0;
 };
@@ -249,13 +336,16 @@ static void schedule() {
         swapcontext( &schedCont, &(currThread->context) );
     
         // do we put the thread back into the runqueue? have to check if its terminated or not?
-        if(currThread->threadStatus != terminated){
+        if( (currThread->threadStatus != terminated) && (currThread->threadStatus != blocked) ){
             currThread->threadStatus = ready;
             printf("sched(): Adding %u to Runqueue\n", currThread->threadID);
             enqueue( currThread, 0 );
         }else if(currThread->threadStatus == terminated){
             printf("sched(): Adding %u to terminated\n", currThread->threadID);
             enqueue( currThread, -1 );
+        }else if(currThread->threadStatus == blocked){
+            printf("sched(): Adding %u to blocked\n", currThread->threadID);
+            enqueue( currThread, -2 );
         }
 
     }
@@ -292,6 +382,11 @@ static void sched_mlfq() {
 // Called once
 void sched_context_create(){
     initialSched = 1;
+    
+    // creating zero timer val;
+    it_zero.it_value.tv_sec = 0;
+    it_zero.it_value.tv_usec = 0;
+
     // This is making the global schedule context
     getcontext(&schedCont);
     void *schedStack=malloc( SIGSTKSZ);
@@ -350,6 +445,12 @@ void enqueue(tcb* node,int queue){
             terminatedH->threadID = 0;
             terminatedH->next = NULL;
             terminatedH->prev = NULL;
+
+            // create head node for the blocked linked list
+            blockedH = (tcb*) malloc( sizeof( tcb ) );
+            blockedH->threadID = 0;
+            blockedH->next = NULL;
+            blockedH->prev = NULL;
         }
     
         // check if the list is empty (besides head and tail)
@@ -375,6 +476,15 @@ void enqueue(tcb* node,int queue){
         }
         // change the head of terminated
         terminatedH->next = node;
+    }else if( queue = -2){//                                                    CHECK IF THIS WORKS FOR BLOCKED QUEUE
+        node->prev = blockedH;
+        node->next = blockedH->next;
+
+        // check if the prev first blocked exists
+        if(blockedH->next){
+            (blockedH->next)->prev = node;
+        }
+        blockedH->next = node;
     }
     return;
 }
@@ -420,6 +530,7 @@ tcb* dequeue(int queue){
     return NULL;
 };
 
+/*  returns the tcb that corresponds to threadID    */
 tcb* findTCB( rpthread_t thread, int queue ){
     // search through our runqueue
     //if( queue == 0 ){
@@ -438,6 +549,13 @@ tcb* findTCB( rpthread_t thread, int queue ){
     temp = terminatedH;
     while(temp){
         if(temp->threadID == thread)
+            return temp;
+        temp = temp->next;
+    }
+    // search through blocked
+    temp = blockedH;
+    while(temp){
+        if( temp->threadID == thread)
             return temp;
         temp = temp->next;
     }
