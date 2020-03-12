@@ -3,6 +3,8 @@
 #include "rpthread.c"
 
 rpthread_mutex_t lock;
+rpthread_mutex_t lock1;
+
 int counter = 0;
 
 void* func1(void* args){
@@ -18,9 +20,9 @@ void* func1(void* args){
 
 void* func2(void* args){
     puts("IN func2");
-    rpthread_mutex_lock(&lock);
+    rpthread_mutex_lock(&lock1);
     puts("in lock in func2");
-    rpthread_mutex_unlock(&lock);
+    rpthread_mutex_unlock(&lock1);
 
     rpthread_exit(NULL);
 }
@@ -28,32 +30,35 @@ void* func2(void* args){
 void* func3(void* args){
     int x = 0;
     
-    //rpthread_mutex_lock(&lock);
+    rpthread_mutex_lock(&lock);
     
     for(x = 0; x < 50000000; x++){
         counter += 1;
     }
    
-    //rpthread_mutex_unlock(&lock);
+    rpthread_mutex_unlock(&lock);
     
     pthread_exit(NULL);
 }
 
 
+
 int main(int argc, char** argv){
 
     rpthread_mutex_init(&lock,NULL);
+    rpthread_mutex_init(&lock1,NULL);
 
     rpthread_t t1;
     rpthread_t t2;
 
+    puts("before first create");
     rpthread_create(&t1,NULL,func3,NULL);
     puts("after create t1");
     rpthread_create(&t2,NULL,func3,NULL);
     puts("After create t2");
 
-    rpthread_join(t1,NULL);
     rpthread_join(t2,NULL);
+    rpthread_join(t1,NULL);
 
     printf("Counter: %d\n",counter);
 

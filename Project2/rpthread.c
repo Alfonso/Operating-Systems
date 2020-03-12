@@ -4,6 +4,15 @@
 // username of iLab: ajb393, aam345
 // iLab Server: kill
 
+/*
+ *  WE NEED TO:
+ *  1) Make it so schedule picks based off of the ifndef
+ *  2) make it so sig handler does based off of MLFQ in ifndef
+ *  3) finish promote
+ *
+*/
+
+
 #include "rpthread.h"
 
 // INITAILIZE ALL YOUR VARIABLES HERE
@@ -13,9 +22,21 @@
 tcb* runqueueH;
 tcb* runqueueT;
 
-tcb* terminatedH;
+// pointers and counter for MLFQ
+tcb* firstqueueH;
+tcb* firstqueueT;
 
-//                                              NEED TO DO THIS SHIT
+tcb* secondqueueH;
+tcb* secondqueueT;
+
+tcb* thirdqueueH;
+tcb* thirdqueueT;
+
+int quantumCounter = 0;
+
+// terminated queue
+tcb* terminatedH;
+// blocked Queue
 tcb* blockedH;
 
 // Global current thread counter
@@ -58,12 +79,13 @@ int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void *(*function
     
     // pthread_attr_init // dont have to do this
 
-    // set data in tcb?
-    threadBlock->threadID = threadCounter; // ?
+    // set data in tcb
+    threadBlock->threadID = threadCounter; 
     threadCounter += 1;
-    threadBlock->threadStatus = ready; // ?
+    threadBlock->threadStatus = ready;
     threadBlock->stack = stack;
-    threadBlock->priority = 0; //?
+    threadBlock->priority = 0;
+    threadBlock->timeElapsed = 0;
   
     *thread = threadBlock->threadID;
     // add the tcb into the runqueue
@@ -139,6 +161,7 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
 	
 	// Wait for a specific thread to terminate
 	// De-allocate any dynamic memory created by the joining thread
+	// YOUR CODE HERE
  
     // find the tcb associated to thread
     tcb* temp = findTCB( thread, -1 );
@@ -158,7 +181,6 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
     if( temp->stack )
         free( temp->stack );
 */
-	// YOUR CODE HERE
 	return 0;
 };
 
@@ -199,27 +221,17 @@ int rpthread_mutex_lock(rpthread_mutex_t *mutex) {
     while( __sync_lock_test_and_set( &(mutex->isLocked), 1 ) == 1  ){
         puts("lock(): Youre blocked bitch");
 
-        // check to see if there are any tcbs waiting to use the mutex
-//        if( (mutex->queueH)->Mnext != mutex->queueT ){
-            // there is something in the queue waiting. Add this to front
+        // add the curr thread into the mutex wait list
+        currThread->Mnext = mutex->queueH->Mnext;
+        currThread->Mprev = mutex->queueH;
             
-            currThread->Mnext = mutex->queueH->Mnext;
-            currThread->Mprev = mutex->queueH;
+        // change mutex list's head ot point to the curr thread
+        mutex->queueH->Mnext = currThread;
             
-            mutex->queueH->Mnext = currThread;
-            
-            (currThread->Mnext)->Mprev = currThread;
-/*            
-        }else{
-            // there is nothing there.
-            mutex->queueH->Mnext = currThread;
-            
-            currThread->Mprev = mutex->queueH;
-            currThread->Mnext = mutex->queueT;
-    
-            mutex->queueT->Mprev = currThread;
-        }
-*/
+        // make the next's prev equal current
+        (currThread->Mnext)->Mprev = currThread;
+        
+        // change status to blocked so scheduler adds to blocked queue
         currThread->threadStatus = blocked;
         swapcontext( &(currThread->context), &(schedCont) );
     }
@@ -335,26 +347,48 @@ static void schedule() {
         #ifndef MLFQ
 	        // Choose STCF
 	        //sched = STCF;
-	        // testing with FCFS instead of using STCF
+	        sched_stcf();
         #else
 	        // Choose MLFQ
 	        //sched = MLFQ;
             sched_mlfq();
         #endif
         */
-        printf("sched(): before: ");
-        printList();
-
+        if( currThread ){
+        
+            if(currThread->priority == 0){
+                printf("sched(): runqueue before: ");
+            }else if( currThread->priority == 1){
+                printf("sched(): firstqueue before: ");
+            }else if( currThread->priority == 2){
+                printf("sched(): secondqueue before: ");
+            }else if( currThread->priority == 3){
+                printf("sched(): thirdqueue before: ");
+            }
+            printList( currThread->priority );
+        }else{
+            printf("sched(): before runqueue: ");
+            printList(0);
+        }
         // find next thread to run
         //sched_rr();
-        sched_stcf();
+        //sched_stcf();
+        sched_mlfq();
 
         // switch its status to running
         currThread->threadStatus = running;
 
         printf("    Switching threads to: %u   ",currThread->threadID);
-        printf("After: ");
-        printList();
+        if(currThread->priority == 0){
+            printf("  runqueue after:   ");
+        }else if( currThread->priority == 1){
+            printf("  firstqueue after:  ");
+        }else if( currThread->priority == 2){
+            printf("   secondqueue after:   ");
+        }else if( currThread->priority == 3){
+            printf("  thirdqueue after:  ");
+        }
+        printList( currThread->priority );
         puts("");
 
         // start the timer
@@ -365,12 +399,16 @@ static void schedule() {
     
         // increase timeElapsed by 1                                                                THIS IS FOR STCF
         currThread->timeElapsed += 1;
-
+        
+        // increase priority is done in the signal handler
+        // increase global quantum timer in signal handler
+        
         // do we put the thread back into the runqueue? have to check if its terminated or not?
         if( (currThread->threadStatus != terminated) && (currThread->threadStatus != blocked) ){
             currThread->threadStatus = ready;
-            printf("sched(): Adding %u to Runqueue\n", currThread->threadID);
-            enqueue( currThread, 0 );
+            printf("sched(): Adding %u to queue:%d \n", currThread->threadID, currThread->priority);
+            // add to queue based off of prioirty. If its not MLFQ it should just add it to 0 queue
+            enqueue( currThread, currThread->priority );
         }else if(currThread->threadStatus == terminated){
             printf("sched(): Adding %u to terminated\n", currThread->threadID);
             enqueue( currThread, -1 );
@@ -420,6 +458,18 @@ static void sched_mlfq() {
 	// (feel free to modify arguments and return types)
 
 	// YOUR CODE HERE
+    
+    // need to check each of the queues starting from top for the queue with an element present
+    if( runqueueH->next != runqueueT){
+        // dequeue because there is something in top queue
+        currThread = dequeue(0);
+    }else if( firstqueueH->next != firstqueueT ){
+        currThread = dequeue(1);
+    }else if( secondqueueH->next != secondqueueT ){
+        currThread = dequeue(2);
+    }else if( thirdqueueH->next != thirdqueueT ){
+        currThread = dequeue(3);
+    }
 }
 
 // Feel free to add any other functions you need
@@ -456,20 +506,45 @@ void sched_context_create(){
     mainTCB->threadStatus = ready;
     // enqueue it into the runqueue
     enqueue( mainTCB, 0 );
-    
     getcontext( &(mainTCB->context) );
     
     swapcontext(&(mainTCB->context), &schedCont);
 }
 
 // print out linked list
-void printList(){
-    tcb* ptr = runqueueH;
-    while(ptr != runqueueT){
-        printf("%u->",ptr->threadID);
-        ptr = ptr->next;
+void printList(int queue){
+    if( queue == 0){
+        tcb* ptr = runqueueH;
+        while(ptr != runqueueT){
+            printf("%u->",ptr->threadID);
+            ptr = ptr->next;
+        }
+        printf("%u",ptr->threadID);
+    }else if( queue == 1 ){
+        tcb* ptr = firstqueueH;
+        while(ptr != firstqueueT){
+            printf("%u->",ptr->threadID);
+            ptr = ptr->next;
+        }
+        printf("%u",ptr->threadID);
+
+    }else if( queue == 2 ){
+        tcb* ptr = secondqueueH;
+        while(ptr != secondqueueT){
+            printf("%u->",ptr->threadID);
+            ptr = ptr->next;
+        }
+        printf("%u",ptr->threadID);
+
+    }else if( queue == 3 ){
+        tcb* ptr = thirdqueueH;
+        while(ptr != thirdqueueT){
+            printf("%u->",ptr->threadID);
+            ptr = ptr->next;
+        }
+        printf("%u",ptr->threadID);
+
     }
-    printf("%u",ptr->threadID);
 }
 
 void printBlock(){
@@ -496,6 +571,9 @@ void enqueue(tcb* node,int queue){
             runqueueT->threadID = 0;
             runqueueT->prev = runqueueH;
             runqueueT->next = NULL;
+
+            // create all of the other queues for MLFQ (even if we do not use it)
+            createMLFQ();
 
             // create head node for the terminated linked list
             terminatedH = (tcb*) malloc( sizeof( tcb ) );
@@ -533,7 +611,7 @@ void enqueue(tcb* node,int queue){
         }
         // change the head of terminated
         terminatedH->next = node;
-    }else if( queue = -2){//                                                    CHECK IF THIS WORKS FOR BLOCKED QUEUE
+    }else if( queue == -2){
         node->prev = blockedH;
         node->next = blockedH->next;
 
@@ -542,6 +620,48 @@ void enqueue(tcb* node,int queue){
             (blockedH->next)->prev = node;
         }
         blockedH->next = node;
+    }else if( queue == 1 ){
+
+        // check if the list is empty (besides head and tail)
+        if(firstqueueT->prev == firstqueueH){
+            firstqueueT->prev = node;
+        }
+
+        // set the new nodes prev and next
+        node->prev = firstqueueH;
+        node->next = firstqueueH->next;
+        // change the previous first nodes data
+        (node->next)->prev = node;
+        // change the heads data
+        firstqueueH->next = node;
+    }else if( queue == 2 ){
+
+        // check if the list is empty (besides head and tail)
+        if(secondqueueT->prev == secondqueueH){
+            secondqueueT->prev = node;
+        }
+
+        // set the new nodes prev and next
+        node->prev = secondqueueH;
+        node->next = secondqueueH->next;
+        // change the previous first nodes data
+        (node->next)->prev = node;
+        // change the heads data
+        secondqueueH->next = node;
+    }else if( queue == 3 ){
+
+        // check if the list is empty (besides head and tail)
+        if(thirdqueueT->prev == thirdqueueH){
+            thirdqueueT->prev = node;
+        }
+
+        // set the new nodes prev and next
+        node->prev = thirdqueueH;
+        node->next = thirdqueueH->next;
+        // change the previous first nodes data
+        (node->next)->prev = node;
+        // change the heads data
+        thirdqueueH->next = node;
     }
     return;
 }
@@ -583,15 +703,68 @@ tcb* dequeue(int queue){
 
         return node;
 
+    }else if( queue == 1 ){
+        // firstqeueu
+        // check if there is anything in the list
+        if( firstqueueT->prev == firstqueueH ){
+            // there is nothing in the list to dequeue
+            return NULL;
+        }
+
+        // get access to the node we want to dequeue
+        tcb* node = firstqueueT->prev;
+        // change values of node's prev
+        (node->prev)->next = node->next;
+        // change values of tail
+        firstqueueT->prev = node->prev;
+        // set node's values to NULL                DO I NEED THIS?
+        node->prev = NULL;
+        node->next = NULL;
+        return node;
+    }else if( queue == 2 ){
+        // secondqeueu
+        // check if there is anything in the list
+        if( secondqueueT->prev == secondqueueH ){
+            // there is nothing in the list to dequeue
+            return NULL;
+        }
+
+        // get access to the node we want to dequeue
+        tcb* node = secondqueueT->prev;
+        // change values of node's prev
+        (node->prev)->next = node->next;
+        // change values of tail
+        secondqueueT->prev = node->prev;
+        // set node's values to NULL                DO I NEED THIS?
+        node->prev = NULL;
+        node->next = NULL;
+        return node;
+    }else if( queue == 3 ){
+        // thirdqeueu
+        // check if there is anything in the list
+        if( thirdqueueT->prev == thirdqueueH ){
+            // there is nothing in the list to dequeue
+            return NULL;
+        }
+
+        // get access to the node we want to dequeue
+        tcb* node = thirdqueueT->prev;
+        // change values of node's prev
+        (node->prev)->next = node->next;
+        // change values of tail
+        thirdqueueT->prev = node->prev;
+        // set node's values to NULL                DO I NEED THIS?
+        node->prev = NULL;
+        node->next = NULL;
+        return node;
     }
     return NULL;
 };
 
 /*  returns the tcb that corresponds to threadID    */
 tcb* findTCB( rpthread_t thread, int queue ){
-    // search through our runqueue
     //if( queue == 0 ){
-        //puts("findTCB(): looking in runqueue");
+    // search through our runqueue
     tcb* temp = runqueueH;
     while(temp){
         if(temp->threadID == thread){
@@ -599,10 +772,31 @@ tcb* findTCB( rpthread_t thread, int queue ){
         }
         temp = temp->next;
     }
-    //}else if( queue == -1 ){
-        // search through our terminated
-        //puts("findTCB(): looking in terminated");
-        //tcb* temp = terminatedH;
+    // search through our runqueue
+    temp = firstqueueH;
+    while(temp){
+        if(temp->threadID == thread){
+            return temp;
+        }
+        temp = temp->next;
+    }
+    // search through our runqueue
+    temp = secondqueueH;
+    while(temp){
+        if(temp->threadID == thread){
+            return temp;
+        }
+        temp = temp->next;
+    }
+    // search through our runqueue
+    temp = thirdqueueH;
+    while(temp){
+        if(temp->threadID == thread){
+            return temp;
+        }
+        temp = temp->next;
+    }
+    // search through our terminated
     temp = terminatedH;
     while(temp){
         if(temp->threadID == thread)
@@ -618,20 +812,118 @@ tcb* findTCB( rpthread_t thread, int queue ){
     }
     //}
     //puts("findTCB(): uh oh found in neither");
-    printList();
-    puts("");
     return NULL;
 }
 
 // returns 1 if it is empty
 // returns 0 if it is not empty
 int isEmpty(){
-    return runqueueH->next == runqueueT;
+    if( runqueueH->next != runqueueT ){
+        return 0;
+    }
+    if( firstqueueH->next != firstqueueT ){
+        return 0;
+    }
+    if( secondqueueH->next != secondqueueT ){
+        return 0;
+    }
+    if( thirdqueueH->next != thirdqueueT ){
+        return 0;
+    }
+
+    return 1;
 }
 
 void sig_handler(int signum){
     if(signum == SIGPROF){
+
+        // check if we are using MLFQ                                       ADD THIS
+        quantumCounter += 1;
+        if(currThread->priority < 3){
+            currThread->priority += 1;
+        }
+
         puts("sighand(): Switching back to sched");
         swapcontext( &(currThread->context), &schedCont );
     }
+}
+
+void createMLFQ(){
+    // first priority queue 
+    firstqueueH = (tcb*) malloc( sizeof( tcb ) );
+    firstqueueT = (tcb*) malloc( sizeof( tcb ) );
+
+    firstqueueH->threadID = 0;
+    firstqueueH->next = firstqueueT;
+    firstqueueH->prev = NULL;
+
+    firstqueueT->threadID = 0;
+    firstqueueT->prev = firstqueueH;
+    firstqueueT->next = NULL;
+
+    // second priority queue
+    secondqueueH = (tcb*) malloc( sizeof( tcb ));
+    secondqueueT = (tcb*) malloc( sizeof( tcb ));
+
+    secondqueueH->threadID = 0;
+    secondqueueH->next = secondqueueT;
+    secondqueueH->prev = NULL;
+
+    secondqueueT->threadID = 0;
+    secondqueueT->prev = secondqueueH;
+    secondqueueT->next = NULL;
+
+    // third priority queue
+    thirdqueueH = (tcb*) malloc( sizeof( tcb ));
+    thirdqueueT = (tcb*) malloc( sizeof( tcb ));
+
+    thirdqueueH->threadID = 0;
+    thirdqueueH->next = thirdqueueT;
+    thirdqueueH->prev = NULL;
+
+    thirdqueueT->threadID = 0;
+    thirdqueueT->prev = thirdqueueH;
+    thirdqueueT->next = NULL;
+}
+
+// promotes all of the threads to top queue                                                             ADD THIS
+void promote(){                     
+   
+    tcb* tempH = NULL;
+    tcb* tempT = NULL;
+
+     // start from bottom queue and work your way up
+    if( thirdqueueH->next != thirdqueueT ){
+        temp = thirdqueueT->prev;
+        
+        thirdqueueH->next = thirdqueueT;
+        thirdqueueT->prev = thirdqueueH;
+
+        temp->next = secondqueueH->next;
+        
+    }
+
+    if( secondqueueH->next != secondqueueT ){
+        // check if temp has a value
+        temp = secondqueueT->prev;
+        secondqueueH->next = secondqueueT;
+        secondqueueT->prev = secondqueueH;
+    
+        temp->next = firstqueueH->next;
+    }
+
+    if( firstqueueH->next != firstqueueT ){
+        temp = firstqueueT->prev;
+        firstqueueH->next = firstqueueT;
+        firstqueueT->prev = firstqueueH;
+
+        temp->next = runqueueH->next;
+    }
+
+    if( runqueueH->next != runqueueT ){
+        temp->prev = runqueueH;
+        runqueueH->next = temp;
+
+    }
+
 }

@@ -78,17 +78,15 @@ typedef struct rpthread_mutex_t {
 /*      Private functions created       */
 static void sched_rr();
 void sched_context_create();
-void printList();
+void printList(int);
 void printBlock();
 void enqueue(tcb*,int);
 tcb* dequeue(int);
 tcb* findTCB(rpthread_t, int);
 int isEmpty();
 void sig_handler(int);
-void heap_init();
-void heapify(tcb*);
-void heap_insert(tcb*);
-tcb* heap_pop();
+void createMLFQ();
+void promote();
 
 /* create a new thread */
 int rpthread_create(rpthread_t * thread, pthread_attr_t * attr, void
