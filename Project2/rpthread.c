@@ -245,12 +245,10 @@ int rpthread_mutex_unlock(rpthread_mutex_t *mutex) {
             // pick the next thread that gets access
             tcb* temp = (mutex->queueT)->Mprev;
         
-            puts("before this line");
              
             // remove the next thread from mutex list
             (temp->Mprev)->Mnext = mutex->queueT;
             mutex->queueT->Mprev = temp->Mprev;
-            puts("after this line");    
 
             // remove the next thread from block queue
             printf("unlock(): Blocked Queue before remove:       ");
@@ -346,8 +344,14 @@ static void schedule() {
         */
         printf("sched(): before: ");
         printList();
-        sched_rr();
+
+        // find next thread to run
+        //sched_rr();
+        sched_stcf();
+
+        // switch its status to running
         currThread->threadStatus = running;
+
         printf("    Switching threads to: %u   ",currThread->threadID);
         printf("After: ");
         printList();
@@ -359,6 +363,9 @@ static void schedule() {
         // swap context
         swapcontext( &schedCont, &(currThread->context) );
     
+        // increase timeElapsed by 1                                                                THIS IS FOR STCF
+        currThread->timeElapsed += 1;
+
         // do we put the thread back into the runqueue? have to check if its terminated or not?
         if( (currThread->threadStatus != terminated) && (currThread->threadStatus != blocked) ){
             currThread->threadStatus = ready;
@@ -387,6 +394,24 @@ static void sched_stcf() {
 	// (feel free to modify arguments and return types)
 
 	// YOUR CODE HERE
+	// need to find the shortest time elapsed thread
+	tcb* min = runqueueH->next;
+    tcb* ptr = runqueueH->next;
+    
+    while( ptr!= runqueueT ){
+        if( ptr->timeElapsed <= min->timeElapsed ){
+            min = ptr;
+        }
+        ptr = ptr->next;
+    }
+    // check if the queue is empty?
+    if( min == runqueueT )
+        return;
+    // set the currThread min time
+    currThread = min;
+    // remove it from the runqueue
+	(currThread->prev)->next = currThread->next;
+    (currThread->next)->prev = currThread->prev;
 }
 
 /* Preemptive MLFQ scheduling algorithm */
