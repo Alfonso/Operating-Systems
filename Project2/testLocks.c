@@ -27,12 +27,13 @@ void* func2(void* args){
 
 void* func3(void* args){
     int x = 0;
+    
     rpthread_mutex_lock(&lock);
     
     for(x = 0; x < 50000000; x++){
         counter += 1;
     }
-    
+   
     rpthread_mutex_unlock(&lock);
     
     pthread_exit(NULL);

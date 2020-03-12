@@ -9,7 +9,7 @@
 
 #define _GNU_SOURCE
 
-#define INTERVAL 50
+#define INTERVAL 5
 
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_RTHREAD macro */
@@ -25,6 +25,7 @@
 #include <ucontext.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 
 typedef uint rpthread_t;
 
@@ -77,6 +78,7 @@ typedef struct rpthread_mutex_t {
 static void sched_rr();
 void sched_context_create();
 void printList();
+void printBlock();
 void enqueue(tcb*,int);
 tcb* dequeue(int);
 tcb* findTCB(rpthread_t, int);

@@ -240,24 +240,37 @@ int rpthread_mutex_unlock(rpthread_mutex_t *mutex) {
 	
     // check if the person calling this actually owns the mutex
     if(mutex->owner == currThread){
-        // set the flag to 0
-        mutex->isLocked = 0;
-        mutex->owner = NULL;
-        
         // check if there is a wait queue
         if( (mutex->queueH)->Mnext != mutex->queueT){
             // pick the next thread that gets access
             tcb* temp = (mutex->queueT)->Mprev;
         
+            puts("before this line");
+             
             // remove the next thread from mutex list
-            (temp->prev)->Mnext = mutex->queueT;
+            (temp->Mprev)->Mnext = mutex->queueT;
+            mutex->queueT->Mprev = temp->Mprev;
+            puts("after this line");    
 
             // remove the next thread from block queue
+            printf("unlock(): Blocked Queue before remove:       ");
+            printBlock();
             (temp->prev)->next = temp->next;
-            (temp->next)->prev = temp->prev;
-            // change its status to ready so scheduler will add it to the runqueue
+            // check if there is something after curr
+            if( (temp->next) )
+                (temp->next)->prev = temp->prev;
+            printf("       Before Queue after remove: ");
+            printBlock();
+            puts("");
+
+            // change its status to ready and add it to the runqueue
             temp->threadStatus = ready;
+            enqueue(temp, 0);
         }
+
+        // set the flag to 0
+        mutex->isLocked = 0;
+        mutex->owner = NULL;
     }else{
         puts("You do not have access to this mutex");
         return -1;
@@ -275,6 +288,17 @@ int rpthread_mutex_destroy(rpthread_mutex_t *mutex) {
     // check if the person destroying has access to mutex
     if( currThread == mutex->owner ){
         
+        if(mutex == NULL){
+            return EINVAL;
+        }
+
+        // free the lock?
+        puts("Mutex destroyed");
+        free( mutex );
+
+    }else{
+        puts("You do not have access to this mutex");
+        return -1;
     }
 
 	return 0;
@@ -421,6 +445,14 @@ void printList(){
         ptr = ptr->next;
     }
     printf("%u",ptr->threadID);
+}
+
+void printBlock(){
+    tcb* ptr = blockedH;
+    while(ptr){
+        printf("%u->",ptr->threadID);
+        ptr = ptr->next;
+    }
 }
 
 void enqueue(tcb* node,int queue){
