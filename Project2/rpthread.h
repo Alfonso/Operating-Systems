@@ -116,6 +116,8 @@ int rpthread_mutex_destroy(rpthread_mutex_t *mutex);
 
 static void schedule();
 
+static void sched_rr();
+
 static void sched_stcf();
 
 static void sched_mlfq();

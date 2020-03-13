@@ -112,7 +112,7 @@ int rpthread_yield() {
 
     // turn the timer off
     setitimer(ITIMER_PROF,&it_zero,NULL);
-    printf("yield(): Thread: %u is giving up control\n",currThread->threadID);
+    //printf("yield(): Thread: %u is giving up control\n",currThread->threadID);
     
     // change the information in the thread calling yield()
     currThread->threadStatus = ready;
@@ -136,7 +136,7 @@ void rpthread_exit(void *value_ptr) {
     // set the thread status to terminate?
     currThread->threadStatus = terminated;
 
-    printf("exit(): Thread exiting: %u, status: %d\n",currThread->threadID,currThread->threadStatus);
+    //printf("exit(): Thread exiting: %u, status: %d\n",currThread->threadID,currThread->threadStatus);
 
     // Something with the value_ptr?                        What is this
     // What ever you pass to pthread exit, wwhoever passes pthread_join
@@ -146,7 +146,7 @@ void rpthread_exit(void *value_ptr) {
  
     // turn the timer off
     setitimer(ITIMER_PROF,&it_zero,NULL);
-    puts("exit(): turned timer off going back to sched");
+    //puts("exit(): turned timer off going back to sched");
 
 
     // return back to the scheduler?                        Do I need to do this?
@@ -165,11 +165,11 @@ int rpthread_join(rpthread_t thread, void **value_ptr) {
  
     // find the tcb associated to thread
     tcb* temp = findTCB( thread, -1 );
-    printf("join(): searching for: %u\n",thread);
+    //printf("join(): searching for: %u\n",thread);
     // infinitely loop to block thread that called this until thread passed into parameters is terminated
     while( temp->threadStatus != terminated ){
     }
-    puts("join(): In join after while");
+    //puts("join(): In join after while");
 
 
     // check if user wants a retval
@@ -219,7 +219,7 @@ int rpthread_mutex_lock(rpthread_mutex_t *mutex) {
     // YOUR CODE HERE
     // use test and set bc its atomic (dont want the possibility of a thread switching
     while( __sync_lock_test_and_set( &(mutex->isLocked), 1 ) == 1  ){
-        puts("lock(): Youre blocked bitch");
+        //puts("lock(): Youre blocked bitch");
 
         // add the curr thread into the mutex wait list
         currThread->Mnext = mutex->queueH->Mnext;
@@ -263,15 +263,15 @@ int rpthread_mutex_unlock(rpthread_mutex_t *mutex) {
             mutex->queueT->Mprev = temp->Mprev;
 
             // remove the next thread from block queue
-            printf("unlock(): Blocked Queue before remove:       ");
-            printBlock();
+            //printf("unlock(): Blocked Queue before remove:       ");
+            //printBlock();
             (temp->prev)->next = temp->next;
             // check if there is something after curr
             if( (temp->next) )
                 (temp->next)->prev = temp->prev;
-            printf("       Before Queue after remove: ");
-            printBlock();
-            puts("");
+            //printf("       Before Queue after remove: ");
+            //printBlock();
+            //puts("");
 
             // change its status to ready and add it to the runqueue
             temp->threadStatus = ready;
@@ -303,7 +303,7 @@ int rpthread_mutex_destroy(rpthread_mutex_t *mutex) {
         }
 
         // free the lock?
-        puts("Mutex destroyed");
+        //puts("Mutex destroyed");
         free( mutex );
 
     }else{
@@ -341,7 +341,7 @@ static void schedule() {
     
 
     while( isEmpty() != 1 ){
-        
+      /*
         if( currThread ){
         
             if(currThread->priority == 0){
@@ -358,11 +358,12 @@ static void schedule() {
             printf("sched(): before runqueue: ");
             printList(0);
         }
+       */
         // find next thread to run
         #ifndef MLFQ
 	        // Choose STCF
 	        //sched = STCF;
-	        sched_stcf();
+            sched_stcf();
         #else
 	        // Choose MLFQ
 	        //sched = MLFQ;
@@ -371,7 +372,7 @@ static void schedule() {
 
         // switch its status to running
         currThread->threadStatus = running;
-
+/*
         printf("    Switching threads to: %u   ",currThread->threadID);
         if(currThread->priority == 0){
             printf("  runqueue after:   ");
@@ -384,7 +385,7 @@ static void schedule() {
         }
         printList( currThread->priority );
         puts("");
-
+*/
         // start the timer
         setitimer(ITIMER_PROF,&it_val,NULL);
         
@@ -400,14 +401,14 @@ static void schedule() {
         // do we put the thread back into the runqueue? have to check if its terminated or not?
         if( (currThread->threadStatus != terminated) && (currThread->threadStatus != blocked) ){
             currThread->threadStatus = ready;
-            printf("sched(): Adding %u to queue:%d \n", currThread->threadID, currThread->priority);
+            //printf("sched(): Adding %u to queue:%d \n", currThread->threadID, currThread->priority);
             // add to queue based off of prioirty. If its not MLFQ it should just add it to 0 queue
             enqueue( currThread, currThread->priority );
         }else if(currThread->threadStatus == terminated){
-            printf("sched(): Adding %u to terminated\n", currThread->threadID);
+            //printf("sched(): Adding %u to terminated\n", currThread->threadID);
             enqueue( currThread, -1 );
         }else if(currThread->threadStatus == blocked){
-            printf("sched(): Adding %u to blocked\n", currThread->threadID);
+            //printf("sched(): Adding %u to blocked\n", currThread->threadID);
             enqueue( currThread, -2 );
         }
 
@@ -753,7 +754,7 @@ tcb* dequeue(int queue){
         return node;
     }
     return NULL;
-};
+}
 
 /*  returns the tcb that corresponds to threadID    */
 tcb* findTCB( rpthread_t thread, int queue ){
@@ -838,13 +839,13 @@ void timer_handler(int signum){
             }
             quantumCounter += 1;
             if(quantumCounter > 9){
-                puts("sighand(): promoting");
+                //puts("sighand(): promoting");
                 promote();
                 quantumCounter = 0;
             }
         #endif
 
-        puts("sighand(): Switching back to sched");
+        //puts("sighand(): Switching back to sched");
         swapcontext( &(currThread->context), &schedCont );
     }
 }
@@ -947,9 +948,9 @@ void promote(){
     currThread->priority = 0;
 
 
-    printf("promote(): NEW RUNQUEUE: ");
-    printList(0);
-    puts("");
+    //printf("promote(): NEW RUNQUEUE: ");
+    //printList(0);
+    //puts("");
 
 
 }
