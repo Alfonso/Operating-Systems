@@ -333,7 +333,7 @@ static void schedule() {
     // set the signal handler
     struct sigaction sa;
     memset (&sa, 0, sizeof (sa));
-    sa.sa_handler = &sig_handler;
+    sa.sa_handler = &timer_handler;
     sigaction (SIGPROF, &sa, NULL);    
 
     it_val.it_value.tv_sec = INTERVAL/1000;
@@ -341,19 +341,7 @@ static void schedule() {
     
 
     while( isEmpty() != 1 ){
-        // check which scheduling algo we are using
-        // schedule policy
-        /*
-        #ifndef MLFQ
-	        // Choose STCF
-	        //sched = STCF;
-	        sched_stcf();
-        #else
-	        // Choose MLFQ
-	        //sched = MLFQ;
-            sched_mlfq();
-        #endif
-        */
+        
         if( currThread ){
         
             if(currThread->priority == 0){
@@ -371,9 +359,15 @@ static void schedule() {
             printList(0);
         }
         // find next thread to run
-        //sched_rr();
-        //sched_stcf();
-        sched_mlfq();
+        #ifndef MLFQ
+	        // Choose STCF
+	        //sched = STCF;
+	        sched_stcf();
+        #else
+	        // Choose MLFQ
+	        //sched = MLFQ;
+            sched_mlfq();
+        #endif
 
         // switch its status to running
         currThread->threadStatus = running;
@@ -834,14 +828,21 @@ int isEmpty(){
     return 1;
 }
 
-void sig_handler(int signum){
+void timer_handler(int signum){
     if(signum == SIGPROF){
 
-        // check if we are using MLFQ                                       ADD THIS
-        quantumCounter += 1;
-        if(currThread->priority < 3){
-            currThread->priority += 1;
-        }
+        #ifndef MLFQ
+        #else
+            if(currThread->priority < 3){
+                currThread->priority += 1;
+            }
+            quantumCounter += 1;
+            if(quantumCounter > 9){
+                puts("sighand(): promoting");
+                promote();
+                quantumCounter = 0;
+            }
+        #endif
 
         puts("sighand(): Switching back to sched");
         swapcontext( &(currThread->context), &schedCont );
@@ -886,44 +887,69 @@ void createMLFQ(){
     thirdqueueT->next = NULL;
 }
 
-// promotes all of the threads to top queue                                                             ADD THIS
+// promotes all of the threads to top queue
 void promote(){                     
    
     tcb* tempH = NULL;
     tcb* tempT = NULL;
 
-     // start from bottom queue and work your way up
-    if( thirdqueueH->next != thirdqueueT ){
-        temp = thirdqueueT->prev;
-        
-        thirdqueueH->next = thirdqueueT;
-        thirdqueueT->prev = thirdqueueH;
-
-        temp->next = secondqueueH->next;
-        
-    }
-
-    if( secondqueueH->next != secondqueueT ){
-        // check if temp has a value
-        temp = secondqueueT->prev;
-        secondqueueH->next = secondqueueT;
-        secondqueueT->prev = secondqueueH;
-    
-        temp->next = firstqueueH->next;
-    }
-
+    // start at top queue
     if( firstqueueH->next != firstqueueT ){
-        temp = firstqueueT->prev;
+        tempT = firstqueueT->prev;
+        tempH = firstqueueH->next;
+
+        tempT->next = runqueueH->next;
+        runqueueH->next = tempH;
+        tempH->prev = runqueueH;
+        (tempT->next)->prev = tempT;
         firstqueueH->next = firstqueueT;
         firstqueueT->prev = firstqueueH;
 
-        temp->next = runqueueH->next;
     }
 
-    if( runqueueH->next != runqueueT ){
-        temp->prev = runqueueH;
-        runqueueH->next = temp;
+    if( secondqueueH->next != secondqueueT ){
+        tempT = secondqueueT->prev;
+        tempH = secondqueueH->next;
 
+        tempT->next = runqueueH->next;
+        runqueueH->next = tempH;
+        tempH->prev = runqueueH;
+        (tempT->next)->prev = tempT;
+        secondqueueH->next = secondqueueT;
+        secondqueueT->prev = secondqueueH;
     }
+
+    if( thirdqueueH->next != thirdqueueT ){
+        tempT = thirdqueueT->prev;
+        tempH = thirdqueueH->next;
+
+        tempT->next = runqueueH->next;
+        runqueueH->next = tempH;
+        tempH->prev = runqueueH;
+        (tempT->next)->prev = tempT;
+        thirdqueueH->next = thirdqueueT;
+        thirdqueueT->prev = thirdqueueH;
+    }
+
+    // traverse through runqueue now changing all of their priorities to 1
+    tcb* ptr = runqueueH->next;
+    while(ptr!=runqueueT){
+        ptr->priority = 0;
+        ptr = ptr->next;
+    }
+    // change priorities of blocked threads
+    ptr = blockedH->next;
+    while(ptr){
+        ptr->priority = 0;
+        ptr = ptr->next;
+    }
+    // change priority of curr thread (since not in a queue)
+    currThread->priority = 0;
+
+
+    printf("promote(): NEW RUNQUEUE: ");
+    printList(0);
+    puts("");
+
 
 }

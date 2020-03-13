@@ -84,7 +84,7 @@ void enqueue(tcb*,int);
 tcb* dequeue(int);
 tcb* findTCB(rpthread_t, int);
 int isEmpty();
-void sig_handler(int);
+void timer_handler(int);
 void createMLFQ();
 void promote();
 
