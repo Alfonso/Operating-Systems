@@ -8,6 +8,7 @@
 //Page size is 4KB
 
 //Add any important includes here which you may need
+#include<string.h>
 
 #define PGSIZE 4096
 
@@ -48,4 +49,15 @@ void get_value(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 void print_TLB_missrate();
 
+void* get_next_avail(int);
+
+/*                  Private Functions                   */
+void resetVirtBits(void*,int);
+void* get_next_avail_phys(int);
+void setBit(char*,int);
+void clearBit(char*,int);
+int testBit(char*,int);
+void printBits(unsigned long);
+unsigned long getTopIndex(unsigned long);
+unsigned long getMidIndex(unsigned long);
 #endif
