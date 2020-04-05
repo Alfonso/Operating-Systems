@@ -167,6 +167,10 @@ pte_t *translate(pde_t *pgdir, void *va) {
     // calculate the VPN
     unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
 
+    printf("translate(): pageDirIndex is %lu, pageTableIndex is %lu, vpn is %lu\n",pageDirIndex,pageTableIndex,vpn);
+    printf("translate(): va is %lu\n",virtAddr);
+    printf("translate(): bit at vpn %lu is %d\n",vpn,testBit(virtBitArr,vpn));
+
     // need to check if the page of VPN is in use
     if( !( ( vpn > 0 ) && ( vpn < numVirtEntries - 1 ) ) || ( testBit( virtBitArr,vpn ) == 0 ) ){
         printf("Virtual page we are trying to translate is not in use\n");
@@ -197,6 +201,8 @@ pte_t *translate(pde_t *pgdir, void *va) {
 
 
     /*                  ADD PA TO TLB                   */
+
+    printf("translate(): pa is %lu\n",pa);
 
     return (pte_t*) pa;
 }
@@ -246,6 +252,8 @@ page_map(pde_t *pgdir, void *va, void *pa)
     // store the PA into the index inside the page table
     pde_t* pageTable = pageDir[pageDirIndex];
     pageTable[pageTableIndex] = physAddr;
+
+    printf("page_map(): pa is %lu\n",physAddr);
 
     return 0;
 
@@ -318,7 +326,7 @@ void *get_next_avail(int num_pages) {
     // build the va
     va |= outerPageIndex << (numPageTableBits + numOffBits);
     va |= innerPageIndex << numOffBits;
- 
+
     return (void*) va;
 
 }
@@ -469,7 +477,39 @@ void put_value(void *va, void *val, int size) {
      * function.
      */
 
+    unsigned long pa = 0;
+    unsigned long numPages = size / PGSIZE;
+    if( size % PGSIZE != 0 )
+        numPages += 1;
+    
+    int tempSize = size;
 
+    int counter = 0;
+    for( counter = 0; counter < numPages; counter++ ){
+        // stop if we have copied everything over
+        if( tempSize <= 0 ){
+            break;
+        }
+        
+        // find the pa coresponding to this va
+        pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+
+        printf("put(): pa is %lu\n",pa);
+
+        // check if we need to only cpy tempSize or PGSize
+        if(tempSize < PGSIZE){
+            printf("put(): In smaller cpy\n");
+            // we need to only cpy tempSize
+            memcpy( (void*) pa, val + counter * PGSIZE, tempSize );           
+        }else{
+            printf("put(): In normal cpy\n");
+            // we need to copy a pages worth of mem
+            memcpy( (void*) pa, val + counter * PGSIZE, PGSIZE );
+            // subtract off the amount we just copied in
+            tempSize -= PGSIZE;           
+        }
+        
+    }
 
 
 }
@@ -482,7 +522,40 @@ void get_value(void *va, void *val, int size) {
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
 
+    unsigned long pa = 0;
+    unsigned long numPages = size / PGSIZE;
+    if( size % PGSIZE != 0 )
+        numPages += 1;
+    
+    int tempSize = size;
 
+    int counter = 0;
+    for( counter = 0; counter < numPages; counter++ ){
+        // stop if we have copied everything over
+        if( tempSize <= 0 ){
+            break;
+        }
+        
+        // find the pa coresponding to this va
+        pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+
+        printf("get(): pa is %lu\n",pa);
+
+        // check if we need to only cpy tempSize or PGSize
+        if(tempSize < PGSIZE){
+            printf("get(): In smaller cpy\n");
+            // we need to only cpy tempSize
+            memcpy( val + counter * PGSIZE, (void*) pa, tempSize );           
+        }else{
+            printf("get(): In normal cpy\n");
+            // we need to copy a pages worth of mem
+            memcpy( val + counter * PGSIZE, (void*) pa, PGSIZE );
+            // subtract off the amount we just copied in
+            tempSize -= PGSIZE;           
+        }
+        
+    }
+    
 
 
 }
@@ -643,15 +716,22 @@ unsigned long getTopIndex(unsigned long va){
  * Gets the page table index
 */
 unsigned long getMidIndex(unsigned long va){
+
+    printf("getMidIndex(): va is %lu\n",va);
+
     unsigned long mid_bits_value = 0;
 
     va = va >> numOffBits;
+
+    printf("numoffBits: %d, va: %lu\n",numOffBits,va);
 
     unsigned long outer_bits_mask = (1 << numPageTableBits);
 
     outer_bits_mask = outer_bits_mask-1;
 
     mid_bits_value = va & outer_bits_mask;
+
+    printf("getMidIndex(): pg table index is %lu\n",mid_bits_value);
 
     return mid_bits_value;
 
