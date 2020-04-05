@@ -27,7 +27,7 @@ int numVirtEntries;
 int numPhysEntries;
 
 // pointer to our page Directory
-pde_t* pageDir;
+pde_t** pageDir;
 
 /*
 Function responsible for allocating and setting your physical memory 
@@ -75,19 +75,12 @@ void set_physical_mem() {
     memset(virtBitArr,0,numVirtEntries / 8);
     memset(physBitArr,0,numPhysEntries / 8);
 
-    /*                  TESTING                 */
-    //int counter = 0;
-    //for(counter = 0; counter < numPhysEntries;counter++){
-    //    setBit(physBitArr,counter);
-    //}
-    /*                  TESTING                 */
-
     // set the 0th bit in the virtBitArr to 1 (we never want to use this one)
     // because the address would be 0x00000000 which should be what we say is NULL
     setBit(virtBitArr,0);
 
     // Allocate page directory
-    pageDir = (pde_t*) malloc( numPageDirEntries * sizeof( pde_t ) );
+    pageDir = (pde_t**) malloc( numPageDirEntries * sizeof( pde_t* ) );
 }
 
 
@@ -151,8 +144,61 @@ pte_t *translate(pde_t *pgdir, void *va) {
     */
 
 
-    //If translation not successfull
-    return NULL; 
+    /*                  TLB STUFF                   */
+
+    // check if the va exists in the TLB
+    // if it does, return the PA
+    // if it does not, then continue translate like usual
+
+    /*                  TLB STUFF                   */
+   
+    // cast these values back
+    unsigned long virtAddr = (unsigned long) va;
+    // return val
+    unsigned long pa = 0;
+
+    // calculate the VPN
+    // calculate the outer page directory index
+    unsigned long pageDirIndex = getTopIndex( virtAddr );
+
+    // calculate the inner page directory index
+    unsigned long pageTableIndex = getMidIndex( virtAddr );
+
+    // calculate the VPN
+    unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+
+    // need to check if the page of VPN is in use
+    if( !( ( vpn > 0 ) && ( vpn < numVirtEntries - 1 ) ) || ( testBit( virtBitArr,vpn ) == 0 ) ){
+        printf("Virtual page we are trying to translate is not in use\n");
+        return NULL;
+    }
+
+    // need to check if the page table at the index in the page dir
+    // exists or not
+    if( pageDir[pageDirIndex] == NULL ){
+        printf("Page table in page Directory is not allocated\n");
+        return NULL;
+    }
+
+    // get the correct pageTable
+    pde_t* pageTable = pageDir[pageDirIndex];
+    
+    // get the pa from the page table
+    pa = pageTable[pageTableIndex];
+
+    // check if pa is below the start of our phys mem
+    if( (pa < ( (unsigned long) &physicalMem)) || (pa > ((unsigned long) &physicalMem ) * numPhysEntries)){
+        printf("PA is not within bounds\n");
+        return NULL;
+    }
+
+    /*                  ADD PA TO TLB                   */
+
+
+
+    /*                  ADD PA TO TLB                   */
+
+    return (pte_t*) pa;
 }
 
 
@@ -170,12 +216,36 @@ page_map(pde_t *pgdir, void *va, void *pa)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 
+
     // cast these values back
-    unsigned int* vir_pg_index = (unsigned int*) va;
-    unsigned long* phys_pg_addr = (unsigned long*) pa;
+    unsigned long virtAddr = (unsigned long) va;
+    unsigned long physAddr = (unsigned long) pa;
 
-    //int pgdir_ind = ((*vir_pg_index)/num_pg_dir_entries);
+    // calculate the VPN
+    // calculate the outer page directory index
+    unsigned long pageDirIndex = getTopIndex( virtAddr );
 
+    // calculate the inner page directory index
+    unsigned long pageTableIndex = getMidIndex( virtAddr );
+
+    // calculate the VPN
+    unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+
+    // need to check if the page of VPN is in use
+    if( !( ( vpn > 0 ) && ( vpn < numVirtEntries - 1 ) ) || ( testBit( virtBitArr,vpn ) == 0 ) ){
+        printf("Virtual page we are trying to map is not in use\n");
+        return -1;
+    }
+
+    // need to check if the page table at the index in the page dir
+    // exists or not
+    if( pageDir[pageDirIndex] == NULL ){
+        pageDir[pageDirIndex] = (pde_t*) malloc( sizeof(pde_t) * numPageTableEntries );
+    }
+    
+    // store the PA into the index inside the page table
+    pde_t* pageTable = pageDir[pageDirIndex];
+    pageTable[pageTableIndex] = physAddr;
 
     return 0;
 
@@ -186,7 +256,7 @@ page_map(pde_t *pgdir, void *va, void *pa)
 */
 void *get_next_avail(int num_pages) {
     // va should be an unsigned long
-    unsigned long va;
+    unsigned long va = 0;
 
     // pageNum in bit arr we are giving back to them
     unsigned int startIndex = 0;
@@ -199,6 +269,7 @@ void *get_next_avail(int num_pages) {
     for( counter = 1; counter < numVirtEntries; counter++ ){
         // check if curr bit is not in use
         if( testBit( virtBitArr, counter ) == 0 ){
+            printf("VPN bit: %d\n",counter);
             // set it to in use
             setBit( virtBitArr, counter );
             // check if we are already in contig
@@ -243,11 +314,11 @@ void *get_next_avail(int num_pages) {
     // find the index in the inner page table
     unsigned int innerPageIndex = startIndex % numPageTableEntries;
     // assume offset is 0
-    
+
     // build the va
     va |= outerPageIndex << (numPageTableBits + numOffBits);
     va |= innerPageIndex << numOffBits;
-    
+ 
     return (void*) va;
 
 }
@@ -283,10 +354,10 @@ void *a_malloc(unsigned int num_bytes) {
         numPagesNeeded += 1;
 
     // find all of the contiguous virtual pages (this is an array of all the virtual pages)
-    unsigned long* va =  get_next_avail( numPagesNeeded );
+    unsigned long va = (unsigned long) get_next_avail( numPagesNeeded );
 
     // if va is NULL that means that it failed
-    if( va == NULL ){
+    if( va == 0 ){
         printf("Error getting Virtual Pages\n");
         return NULL;
     }
@@ -298,14 +369,15 @@ void *a_malloc(unsigned int num_bytes) {
     if( ((unsigned long*)pa)[0] == 0 ){
         printf("Error getting physical Pages\n");
         // need to set the bits corresponding to virt pages back to 0
-        resetVirtBits(va,numPagesNeeded);
+        resetVirtBits((void*)va,numPagesNeeded);
         return NULL;
     }
 
     // Loop through all physical pages mapping virtual pages to the physical address
     int counter = 0;
     for( counter = 0; counter < numPagesNeeded; counter++ ){
-        //int retVal = page_map( pageDir, (void*)va[counter],(void*) pa[counter] );
+        // Map the curr VA to the curr PA. We NULL the pgdir bc we are using the global
+        int retVal = page_map( NULL, (void*)(va + counter*PGSIZE),(void*) (pa[counter]) );
     }
     
     // return the virtual addres of the first virtual page
@@ -322,8 +394,67 @@ void a_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
-     
+
+    // calculate how many pages this would be
+    unsigned long numPages = size / PGSIZE;
+    if( size % PGSIZE != 0 )
+        numPages += 1;
+
+    // cast the virtual address back
+    unsigned long virtAddr = (unsigned long) va;
     
+    // calculate the VPN
+    // calculate the outer page directory index
+    unsigned long pageDirIndex = getTopIndex( virtAddr );
+
+    // calculate the inner page directory index
+    unsigned long pageTableIndex = getMidIndex( virtAddr );
+
+    // calculate the VPN
+    unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+   
+    // check if the VA they gave us is one we gave them (check the bit array)
+    int counter = 0;
+    for(counter = 0; counter < numPages; counter++){
+        if( testBit(virtBitArr, vpn + counter ) == 0 ){
+            printf("Memory you gave us was not allocated by us\n");
+            return;
+        }
+    }
+    
+    for(counter = 0; counter < numPages; counter++){
+        // find the pa coresponding to this va
+        unsigned long pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+   
+        // check if 
+        if( pa == 0 ){
+            printf("The PA is null\n");
+            return;
+        }
+ 
+        // calculate the PPN
+        unsigned long ppn = (pa - ((unsigned long) &physicalMem)) / PGSIZE;
+
+        /*                  DO I NEED TO CHECK IF IT IS LAST IN PAGE?                   */
+
+
+
+
+        /*                  DO I NEED TO CHECK IF IT IS LAST IN PAGE?                   */
+        
+
+        /*                  NEED TO REMOVE IT FROM TLB                  */
+   
+
+ 
+        /*                  NEED TO REMOVE IT FROM TLB                  */
+        
+        // clear the phys mem bit
+        printf("The ppn is %d, the vpn is %d\n",ppn,vpn + counter);
+        clearBit(physBitArr, ppn);
+        clearBit(virtBitArr, vpn + counter);
+    }
+
 }
 
 
@@ -423,6 +554,7 @@ void* get_next_avail_phys(int numNeededPages){
         for( y = 0; y < numPhysEntries; y++){
             // check if the curr bit/page is not in use
             if( testBit( physBitArr, y ) == 0 ){
+                printf("PPN is: %d\n",y);
                 // set the bit as in use
                 setBit( physBitArr, y );
                 // calculate the phys address to put into array
