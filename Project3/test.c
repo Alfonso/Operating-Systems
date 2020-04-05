@@ -56,36 +56,41 @@ void checkTLB(){
 
 void checkPutGet(){
 
-    int numInts = 100;    
+    int numInts = 1025;    
 
     int size = numInts * sizeof(int);
 
 
-    int buffer[100] = {0};
+    int buffer[1025] = {0};
 
     buffer[0] = 1;
     buffer[24] = 2;
     buffer[49] = 3;
     buffer[74] = 4;
     buffer[99] = 5;
+    buffer[1000] = 6;
+    buffer[1024] = 7;
     
+
     printf("test(): mallocing\n");
     int* test = (int*) a_malloc( size );
 
-    printf("test(): puttingng\n");
+    printf("\ntest(): puttingng\n");
     put_value( (void*) test, (void*) buffer, size );
 
-    int buffer2[100] = {0};
+    int buffer2[1025] = {0};
 
-    printf("test(): getting\n");
+    printf("\ntest(): getting\n");
     get_value( (void*) test, (void*) buffer2, size );
 
-    printf("idx 0: %d, idx 24: %d, idx 49: %d, idx 74: %d, idx 99: %d\n",buffer2[0],buffer2[24],buffer2[49],buffer2[74],buffer2[99]);
+    printf("idx 0: %d, idx 24: %d, idx 49: %d, idx 74: %d, idx 99: %d, idx 1000: %d, idx 1024: %d\n",buffer2[0],buffer2[24],buffer2[49],buffer2[74],buffer2[99],buffer2[1000],buffer2[1024]);
 
 }
 
 int main(int argc, char** argv){
 
     checkPutGet();
+    //checkFree();
+    
 
 }

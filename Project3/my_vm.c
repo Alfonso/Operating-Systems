@@ -167,10 +167,6 @@ pte_t *translate(pde_t *pgdir, void *va) {
     // calculate the VPN
     unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
 
-    printf("translate(): pageDirIndex is %lu, pageTableIndex is %lu, vpn is %lu\n",pageDirIndex,pageTableIndex,vpn);
-    printf("translate(): va is %lu\n",virtAddr);
-    printf("translate(): bit at vpn %lu is %d\n",vpn,testBit(virtBitArr,vpn));
-
     // need to check if the page of VPN is in use
     if( !( ( vpn > 0 ) && ( vpn < numVirtEntries - 1 ) ) || ( testBit( virtBitArr,vpn ) == 0 ) ){
         printf("Virtual page we are trying to translate is not in use\n");
@@ -191,7 +187,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     pa = pageTable[pageTableIndex];
 
     // check if pa is below the start of our phys mem
-    if( (pa < ( (unsigned long) &physicalMem)) || (pa > ((unsigned long) &physicalMem ) * numPhysEntries)){
+    if( (pa < ( (unsigned long) physicalMem)) || (pa > ((unsigned long) physicalMem ) * numPhysEntries)){
         printf("PA is not within bounds\n");
         return NULL;
     }
@@ -201,8 +197,6 @@ pte_t *translate(pde_t *pgdir, void *va) {
 
 
     /*                  ADD PA TO TLB                   */
-
-    printf("translate(): pa is %lu\n",pa);
 
     return (pte_t*) pa;
 }
@@ -252,8 +246,6 @@ page_map(pde_t *pgdir, void *va, void *pa)
     // store the PA into the index inside the page table
     pde_t* pageTable = pageDir[pageDirIndex];
     pageTable[pageTableIndex] = physAddr;
-
-    printf("page_map(): pa is %lu\n",physAddr);
 
     return 0;
 
@@ -441,7 +433,7 @@ void a_free(void *va, int size) {
         }
  
         // calculate the PPN
-        unsigned long ppn = (pa - ((unsigned long) &physicalMem)) / PGSIZE;
+        unsigned long ppn = (pa - ((unsigned long) physicalMem)) / PGSIZE;
 
         /*                  DO I NEED TO CHECK IF IT IS LAST IN PAGE?                   */
 
@@ -476,7 +468,7 @@ void put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-
+    
     unsigned long pa = 0;
     unsigned long numPages = size / PGSIZE;
     if( size % PGSIZE != 0 )
@@ -494,13 +486,12 @@ void put_value(void *va, void *val, int size) {
         // find the pa coresponding to this va
         pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
 
-        printf("put(): pa is %lu\n",pa);
 
         // check if we need to only cpy tempSize or PGSize
         if(tempSize < PGSIZE){
             printf("put(): In smaller cpy\n");
             // we need to only cpy tempSize
-            memcpy( (void*) pa, val + counter * PGSIZE, tempSize );           
+            memcpy( (void*) pa,(void*)  (val + counter * PGSIZE) , tempSize );           
         }else{
             printf("put(): In normal cpy\n");
             // we need to copy a pages worth of mem
@@ -510,7 +501,6 @@ void put_value(void *va, void *val, int size) {
         }
         
     }
-
 
 }
 
@@ -538,8 +528,6 @@ void get_value(void *va, void *val, int size) {
         
         // find the pa coresponding to this va
         pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
-
-        printf("get(): pa is %lu\n",pa);
 
         // check if we need to only cpy tempSize or PGSize
         if(tempSize < PGSIZE){
@@ -631,7 +619,7 @@ void* get_next_avail_phys(int numNeededPages){
                 // set the bit as in use
                 setBit( physBitArr, y );
                 // calculate the phys address to put into array
-                pa[x] = ((unsigned long) &physicalMem) + (y * PGSIZE);
+                pa[x] = ((unsigned long) physicalMem) + (y * PGSIZE);
                 // break bc we found an address
                 break;
             }
@@ -650,7 +638,7 @@ void* get_next_avail_phys(int numNeededPages){
         for( x = 0; x < numNeededPages; x++ ){
             if( pa[x] != 0 ){
                 // calculate the PPN
-                unsigned long ppn = pa[x] - ((unsigned long) &physicalMem);
+                unsigned long ppn = pa[x] - ((unsigned long) physicalMem);
                 ppn /= PGSIZE;
                 // set the bit back to 0
                 clearBit( physBitArr, ppn );
@@ -717,21 +705,15 @@ unsigned long getTopIndex(unsigned long va){
 */
 unsigned long getMidIndex(unsigned long va){
 
-    printf("getMidIndex(): va is %lu\n",va);
-
     unsigned long mid_bits_value = 0;
-
+    
     va = va >> numOffBits;
-
-    printf("numoffBits: %d, va: %lu\n",numOffBits,va);
 
     unsigned long outer_bits_mask = (1 << numPageTableBits);
 
     outer_bits_mask = outer_bits_mask-1;
 
     mid_bits_value = va & outer_bits_mask;
-
-    printf("getMidIndex(): pg table index is %lu\n",mid_bits_value);
 
     return mid_bits_value;
 
