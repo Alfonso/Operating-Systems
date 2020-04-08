@@ -9,6 +9,7 @@
 
 //Add any important includes here which you may need
 #include<string.h>
+#include<pthread.h>
 
 #define PGSIZE 4096
 

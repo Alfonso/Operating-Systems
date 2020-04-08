@@ -87,10 +87,78 @@ void checkPutGet(){
 
 }
 
-int main(int argc, char** argv){
+void checkFree2(){
 
-    checkPutGet();
-    //checkFree();
+    printf("a_malloc() call. Success\n\n");
+    char* ptr = (char*) a_malloc(3);
+
+
+    printf("a_free() call. Success\n\n");
+    a_free(ptr,3);
+
+    char buffer[3] = {'\0'};
+   
+    buffer[0] = 'H';
+    buffer[1] = 'i';
+
     
+    printf("put_value() call. Fail\n");
+    put_value((void*) ptr, (void*) buffer,3);
+
+
+    printf("\na_free() call. Fail\n");
+    a_free(ptr,3);
+}
+
+void checkPutGet2(){
+    char* ptr = (char*) a_malloc(3);
+
+    char buff[3] = {'\0'};
+    buff[0] = 'H';
+    buff[1] = 'i';
+
+    char res[3] = {'\0'};
+    
+    put_value((void*)ptr,(void*) buff,3);
+    
+    get_value((void*) ptr,(void*) res,3);
+
+    printf("buff: %s, res: %s\n",buff,res);
+
+}
+
+void* threadFunc(void* param){
+    void* ptr;
+    printf("Thread: %d, before malloc\n",(int)param);
+    ptr = (void*) a_malloc(4096);
+    printf("Thread: %d, after malloc\n",(int)param);
+    return;
+}
+
+void checkThread(int numThreads){
+    pthread_t* threads = (pthread_t*) malloc( numThreads  * sizeof(pthread_t) );
+
+    int counter = 0;
+    for(counter = 0; counter < numThreads; counter++){
+        pthread_create( &threads[counter], NULL, &threadFunc, (void*)counter );
+    }
+    
+    for(counter = 0; counter < numThreads; counter++){
+        pthread_join( threads[counter], NULL );
+    }
+
+}
+
+void* threadFunc2(void* param){
+
+}
+
+void checkThread2(int numThreads){
+    
+}
+
+int main(int argc, char** argv){
+    
+    checkThread(15);
 
 }

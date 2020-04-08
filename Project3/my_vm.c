@@ -29,6 +29,10 @@ int numPhysEntries;
 // pointer to our page Directory
 pde_t** pageDir;
 
+// mutex
+pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER;
+
+
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -187,7 +191,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     pa = pageTable[pageTableIndex];
 
     // check if pa is below the start of our phys mem
-    if( (pa < ( (unsigned long) physicalMem)) || (pa > ((unsigned long) physicalMem ) * numPhysEntries)){
+    if( (pa < ( (unsigned long) physicalMem)) || (pa > ((unsigned long) physicalMem ) + MEMSIZE)){
         printf("PA is not within bounds\n");
         return NULL;
     }
@@ -269,7 +273,6 @@ void *get_next_avail(int num_pages) {
     for( counter = 1; counter < numVirtEntries; counter++ ){
         // check if curr bit is not in use
         if( testBit( virtBitArr, counter ) == 0 ){
-            printf("VPN bit: %d\n",counter);
             // set it to in use
             setBit( virtBitArr, counter );
             // check if we are already in contig
@@ -340,6 +343,11 @@ void *a_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used. 
     */
 
+   
+    // mutex this lol
+    pthread_mutex_lock(&myMutex);
+
+
     // This is only ran the first time a_malloc() is called
     // Initialize all of the variables, page dir, physical mem, and bit arrs
     if( initialized == 0 ){
@@ -359,6 +367,10 @@ void *a_malloc(unsigned int num_bytes) {
     // if va is NULL that means that it failed
     if( va == 0 ){
         printf("Error getting Virtual Pages\n");
+            
+            // lock? lol
+            pthread_mutex_unlock(&myMutex);
+
         return NULL;
     }
 
@@ -370,6 +382,10 @@ void *a_malloc(unsigned int num_bytes) {
         printf("Error getting physical Pages\n");
         // need to set the bits corresponding to virt pages back to 0
         resetVirtBits((void*)va,numPagesNeeded);
+            
+            // lock? lol
+            pthread_mutex_unlock(&myMutex);
+
         return NULL;
     }
 
@@ -379,6 +395,8 @@ void *a_malloc(unsigned int num_bytes) {
         // Map the curr VA to the curr PA. We NULL the pgdir bc we are using the global
         int retVal = page_map( NULL, (void*)(va + counter*PGSIZE),(void*) (pa[counter]) );
     }
+    
+    pthread_mutex_unlock(&myMutex);
     
     // return the virtual addres of the first virtual page
     return (void*) va;
@@ -394,6 +412,10 @@ void a_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
+
+    // lock? lol
+    pthread_mutex_lock(&myMutex);
+    
 
     // calculate how many pages this would be
     unsigned long numPages = size / PGSIZE;
@@ -418,6 +440,10 @@ void a_free(void *va, int size) {
     for(counter = 0; counter < numPages; counter++){
         if( testBit(virtBitArr, vpn + counter ) == 0 ){
             printf("Memory you gave us was not allocated by us\n");
+            
+            // lock? lol
+            pthread_mutex_unlock(&myMutex);
+
             return;
         }
     }
@@ -429,6 +455,10 @@ void a_free(void *va, int size) {
         // check if 
         if( pa == 0 ){
             printf("The PA is null\n");
+            
+            // lock? lol
+            pthread_mutex_unlock(&myMutex);
+
             return;
         }
  
@@ -450,11 +480,11 @@ void a_free(void *va, int size) {
         /*                  NEED TO REMOVE IT FROM TLB                  */
         
         // clear the phys mem bit
-        printf("The ppn is %d, the vpn is %d\n",ppn,vpn + counter);
         clearBit(physBitArr, ppn);
         clearBit(virtBitArr, vpn + counter);
     }
 
+    pthread_mutex_unlock(&myMutex);
 }
 
 
@@ -469,6 +499,11 @@ void put_value(void *va, void *val, int size) {
      * function.
      */
     
+
+    // lock? lol
+    pthread_mutex_lock(&myMutex);
+
+
     unsigned long pa = 0;
     unsigned long numPages = size / PGSIZE;
     if( size % PGSIZE != 0 )
@@ -485,15 +520,21 @@ void put_value(void *va, void *val, int size) {
         
         // find the pa coresponding to this va
         pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+        if( pa == 0 ){
+            // some sort of error
+            printf("physical address is 0\n");
+            
+            // unlock? lol
+            pthread_mutex_unlock(&myMutex);
 
+            return;
+        }
 
         // check if we need to only cpy tempSize or PGSize
         if(tempSize < PGSIZE){
-            printf("put(): In smaller cpy\n");
             // we need to only cpy tempSize
             memcpy( (void*) pa,(void*)  (val + counter * PGSIZE) , tempSize );           
         }else{
-            printf("put(): In normal cpy\n");
             // we need to copy a pages worth of mem
             memcpy( (void*) pa, val + counter * PGSIZE, PGSIZE );
             // subtract off the amount we just copied in
@@ -501,6 +542,10 @@ void put_value(void *va, void *val, int size) {
         }
         
     }
+            
+            // unlock? lol
+            pthread_mutex_unlock(&myMutex);
+
 
 }
 
@@ -511,6 +556,10 @@ void get_value(void *va, void *val, int size) {
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
+           
+     
+            // lock? lol
+            pthread_mutex_lock(&myMutex);
 
     unsigned long pa = 0;
     unsigned long numPages = size / PGSIZE;
@@ -528,14 +577,21 @@ void get_value(void *va, void *val, int size) {
         
         // find the pa coresponding to this va
         pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+        if( pa == 0 ){
+            // some sort of error
+            printf("physical address is 0\n");
+            
+            // lock? lol
+            pthread_mutex_unlock(&myMutex);
+
+            return;
+        }
 
         // check if we need to only cpy tempSize or PGSize
         if(tempSize < PGSIZE){
-            printf("get(): In smaller cpy\n");
             // we need to only cpy tempSize
             memcpy( val + counter * PGSIZE, (void*) pa, tempSize );           
         }else{
-            printf("get(): In normal cpy\n");
             // we need to copy a pages worth of mem
             memcpy( val + counter * PGSIZE, (void*) pa, PGSIZE );
             // subtract off the amount we just copied in
@@ -544,6 +600,10 @@ void get_value(void *va, void *val, int size) {
         
     }
     
+            
+            // lock? lol
+            pthread_mutex_unlock(&myMutex);
+
 
 
 }
@@ -562,9 +622,38 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
      * load each element and perform multiplication. Take a look at test.c! In addition to 
      * getting the values from two matrices, you will perform multiplication and 
      * store the result to the "answer array"
-     */
+    */
 
-       
+    
+
+    int i = 0;
+    int j = 0;
+    int k = 0;
+    int zero = 0;
+    unsigned int firstAddr = 0, secondAddr = 0, thirdAddr = 0;
+    int temp1 = 0;
+    int temp2 = 0;
+    int tempRes = 0;
+
+
+    for(i = 0; i < size; i++){
+        for(j = 0; j < size; j++){
+            // calculate the address of the index for answer and initialize it to 0
+            thirdAddr = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
+            put_value((void*) thirdAddr, &zero, sizeof(int));
+            tempRes = 0;
+            for(k = 0; k < size; k++){
+                // calcualte the two addresses of the matrices and then add them to
+                // the index of answer
+                firstAddr = (unsigned int)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
+                secondAddr = (unsigned int)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
+                get_value( (void*)firstAddr, &temp1,sizeof(int) );
+                get_value( (void*)secondAddr, &temp2, sizeof(int) );
+                tempRes += temp1 * temp2;
+            }
+            put_value((void*)thirdAddr, &tempRes, sizeof(int));
+        }
+    }
 }
 
 /*                  Private Functions                   */
@@ -615,7 +704,6 @@ void* get_next_avail_phys(int numNeededPages){
         for( y = 0; y < numPhysEntries; y++){
             // check if the curr bit/page is not in use
             if( testBit( physBitArr, y ) == 0 ){
-                printf("PPN is: %d\n",y);
                 // set the bit as in use
                 setBit( physBitArr, y );
                 // calculate the phys address to put into array
