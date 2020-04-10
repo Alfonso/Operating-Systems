@@ -27,13 +27,21 @@ typedef unsigned long pde_t;
 
 #define TLB_ENTRIES 512
 
+// structure to represent a TLB entry
+typedef struct _tlbEntry{
+    unsigned long vpn;
+    unsigned long pa;
+} tlbEntry;
+
 //Structure to represents TLB
 struct tlb {
     /*Assume your TLB is a direct mapped TLB with number of entries as TLB_ENTRIES
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
-
+    tlbEntry* tlbArray;
+    int hits;
+    int misses;
 };
 struct tlb tlb_store;
 
@@ -61,4 +69,6 @@ int testBit(char*,int);
 void printBits(unsigned long);
 unsigned long getTopIndex(unsigned long);
 unsigned long getMidIndex(unsigned long);
+unsigned long getOffValue(unsigned long);
+void removeTLB(void*);
 #endif

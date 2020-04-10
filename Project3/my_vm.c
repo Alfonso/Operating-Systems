@@ -85,6 +85,12 @@ void set_physical_mem() {
 
     // Allocate page directory
     pageDir = (pde_t**) malloc( numPageDirEntries * sizeof( pde_t* ) );
+
+    // allocate the TLB
+    //tlb_store = (struct tlb) malloc( sizeof(struct tlb) );
+    tlb_store.hits = 0;
+    tlb_store.misses = 0;
+    tlb_store.tlbArray = (tlbEntry*) malloc( sizeof(tlbEntry) * TLB_ENTRIES );
 }
 
 
@@ -95,10 +101,29 @@ void set_physical_mem() {
 int
 add_TLB(void *va, void *pa)
 {
-
+   
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
 
-    return -1;
+    // cast to unsigned long
+    unsigned long virtAddr = (unsigned long) va;
+
+    // calculate the outer page directory index
+    unsigned long pageDirIndex = getTopIndex( virtAddr );
+
+    // calculate the inner page directory index
+    unsigned long pageTableIndex = getMidIndex( virtAddr );
+
+    // calculate the VPN
+    unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+   
+    // Hash by the VPN
+    unsigned int tlbIndex = vpn % TLB_ENTRIES;
+
+    // add to the TLB
+    tlb_store.tlbArray[ tlbIndex ].pa = (unsigned long) pa;
+    tlb_store.tlbArray[ tlbIndex ].vpn = vpn;
+
+    return 0;
 }
 
 
@@ -111,6 +136,34 @@ pte_t *
 check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
+
+    // cast to unsigned long
+    unsigned long virtAddr = (unsigned long) va;
+    
+    // calculate the outer page directory index
+    unsigned long pageDirIndex = getTopIndex( virtAddr );
+
+    // calculate the inner page directory index
+    unsigned long pageTableIndex = getMidIndex( virtAddr );
+
+    // calculate the VPN
+    unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+
+    // Hash by the VPN
+    unsigned int tlbIndex = vpn % TLB_ENTRIES;
+
+    // check if it is in the TLB
+    if( tlb_store.tlbArray[ tlbIndex ].vpn  == vpn ){
+        // it is increment hits
+        tlb_store.hits += 1;
+        // return the pa
+        return (pte_t*) tlb_store.tlbArray[ tlbIndex ].pa;
+    }
+    
+    // it isnt. Increment misses
+    tlb_store.misses += 1;
+    // return NULL since there is no PA
+    return NULL;
 
 }
 
@@ -126,10 +179,10 @@ print_TLB_missrate()
 
     /*Part 2 Code here to calculate and print the TLB miss rate*/
 
+    miss_rate = tlb_store.misses / (tlb_store.hits + tlb_store.misses);
 
-
-
-    fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
+    
+    fprintf(stderr, "TLB hits: %d, TLB misses: %d, TLB miss rate: %lf \n",tlb_store.hits, tlb_store.misses, miss_rate);
 }
 
 
@@ -147,19 +200,25 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * translation exists, then you can return physical address from the TLB.
     */
 
-
-    /*                  TLB STUFF                   */
-
-    // check if the va exists in the TLB
-    // if it does, return the PA
-    // if it does not, then continue translate like usual
-
-    /*                  TLB STUFF                   */
-   
     // cast these values back
     unsigned long virtAddr = (unsigned long) va;
     // return val
     unsigned long pa = 0;
+
+    /*                  TLB STUFF                   */
+    // check if the va exists in the TLB
+    // if it does, return the PA
+    // if it does not, then continue translate like usual
+
+    pa = (unsigned long) check_TLB( va );
+    if( pa != 0 ){
+        // calculate the offset
+        unsigned long offset = getOffValue( virtAddr );
+        printf("Offset: %lu\n",offset);
+        // add the ofset to the pa
+        pa += offset;
+        return (pte_t*) pa;
+    }
 
     // calculate the VPN
     // calculate the outer page directory index
@@ -170,6 +229,10 @@ pte_t *translate(pde_t *pgdir, void *va) {
 
     // calculate the VPN
     unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+
+    // calculate the offset
+    unsigned long offset = getOffValue( virtAddr );
+    printf("Offset: %lu\n",offset);
 
     // need to check if the page of VPN is in use
     if( !( ( vpn > 0 ) && ( vpn < numVirtEntries - 1 ) ) || ( testBit( virtBitArr,vpn ) == 0 ) ){
@@ -197,10 +260,10 @@ pte_t *translate(pde_t *pgdir, void *va) {
     }
 
     /*                  ADD PA TO TLB                   */
+    add_TLB( va, (void*) pa );
 
-
-
-    /*                  ADD PA TO TLB                   */
+    /*                  do we add the offset?                   */
+    pa += offset;
 
     return (pte_t*) pa;
 }
@@ -259,6 +322,7 @@ page_map(pde_t *pgdir, void *va, void *pa)
 /*Function that gets the next available page
 */
 void *get_next_avail(int num_pages) {
+
     // va should be an unsigned long
     unsigned long va = 0;
 
@@ -321,6 +385,8 @@ void *get_next_avail(int num_pages) {
     // build the va
     va |= outerPageIndex << (numPageTableBits + numOffBits);
     va |= innerPageIndex << numOffBits;
+
+    //printf("VPN: %d\n",startIndex);
 
     return (void*) va;
 
@@ -394,6 +460,15 @@ void *a_malloc(unsigned int num_bytes) {
     for( counter = 0; counter < numPagesNeeded; counter++ ){
         // Map the curr VA to the curr PA. We NULL the pgdir bc we are using the global
         int retVal = page_map( NULL, (void*)(va + counter*PGSIZE),(void*) (pa[counter]) );
+        
+        // check to see if page map was successful
+        if( retVal == 0 ){
+            // add to TLB if success
+            add_TLB((void*) (va + counter*PGSIZE), (void*) (pa[counter]));
+        }else{
+            // page map failed
+            printf("page map failed and thus not adding to tlb\n");
+        }
     }
     
     pthread_mutex_unlock(&myMutex);
@@ -465,19 +540,8 @@ void a_free(void *va, int size) {
         // calculate the PPN
         unsigned long ppn = (pa - ((unsigned long) physicalMem)) / PGSIZE;
 
-        /*                  DO I NEED TO CHECK IF IT IS LAST IN PAGE?                   */
-
-
-
-
-        /*                  DO I NEED TO CHECK IF IT IS LAST IN PAGE?                   */
-        
-
         /*                  NEED TO REMOVE IT FROM TLB                  */
-   
-
- 
-        /*                  NEED TO REMOVE IT FROM TLB                  */
+        removeTLB( (void*) (va + (counter*PGSIZE) ) ); 
         
         // clear the phys mem bit
         clearBit(physBitArr, ppn);
@@ -517,9 +581,9 @@ void put_value(void *va, void *val, int size) {
         if( tempSize <= 0 ){
             break;
         }
-        
         // find the pa coresponding to this va
         pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+        printf("after translate, PA IS: %lu\n",pa);
         if( pa == 0 ){
             // some sort of error
             printf("physical address is 0\n");
@@ -542,7 +606,6 @@ void put_value(void *va, void *val, int size) {
         }
         
     }
-            
             // unlock? lol
             pthread_mutex_unlock(&myMutex);
 
@@ -599,13 +662,9 @@ void get_value(void *va, void *val, int size) {
         }
         
     }
-    
             
             // lock? lol
             pthread_mutex_unlock(&myMutex);
-
-
-
 }
 
 
@@ -793,16 +852,61 @@ unsigned long getTopIndex(unsigned long va){
 */
 unsigned long getMidIndex(unsigned long va){
 
-    unsigned long mid_bits_value = 0;
+    unsigned long midBitsValue = 0;
     
     va = va >> numOffBits;
 
-    unsigned long outer_bits_mask = (1 << numPageTableBits);
+    unsigned long outerBitsMask = (1 << numPageTableBits);
 
-    outer_bits_mask = outer_bits_mask-1;
+    outerBitsMask = outerBitsMask-1;
 
-    mid_bits_value = va & outer_bits_mask;
+    midBitsValue = va & outerBitsMask;
 
-    return mid_bits_value;
+    return midBitsValue;
 
+}
+
+/*
+ * Gets the offset
+*/
+unsigned long getOffValue(unsigned long va){
+    // create a mask for the first 12 bits
+    unsigned long mask = (1 << numOffBits) -1;
+    return (va & mask);
+}
+
+/*
+ * Prints the first 500 bits in the corresponding bit array
+*/
+void printFirst500(int arr){
+    int counter = 0;
+    
+    for(counter = 0; counter < 500; counter++){
+        if(arr == 0){
+            printf("Bit: %d in virt is set to %d\n",counter, testBit(virtBitArr,counter));
+        }else{
+            printf("Bit: %d in phys is set to %d\n",counter, testBit(physBitArr,counter));
+        }
+    }
+
+}
+
+/*
+ * Removes the VA and its corresponding PA from the TLB
+*/
+void removeTLB(void* va){
+    
+    // cast it to the unsigned long so we can manipulate it
+    unsigned long virtAddr = (unsigned long) va;
+    
+    // calculate the outer page directory index
+    unsigned long pageDirIndex = getTopIndex( virtAddr );
+
+    // calculate the inner page directory index
+    unsigned long pageTableIndex = getMidIndex( virtAddr );
+
+    // calculate the VPN
+    unsigned long vpn = pageDirIndex * numPageTableEntries + pageTableIndex;
+
+    
 }

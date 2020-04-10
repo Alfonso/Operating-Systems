@@ -50,10 +50,6 @@ void checkMultipleTables(){
     
 }
 
-void checkTLB(){
-
-}
-
 void checkPutGet(){
 
     int numInts = 1025;    
@@ -151,14 +147,123 @@ void checkThread(int numThreads){
 
 void* threadFunc2(void* param){
 
+    int counter = 0;
+    for(counter = 0; counter < 10; counter++)
+        a_malloc(1);
+
 }
 
 void checkThread2(int numThreads){
+    pthread_t* threads = (pthread_t*) malloc( numThreads  * sizeof(pthread_t) );
+
+    int counter = 0;
+    for(counter = 0; counter < numThreads; counter++){
+        pthread_create( &threads[counter], NULL, &threadFunc2, (void*)counter );
+    }
+
+    for(counter = 0; counter < numThreads; counter++){
+        pthread_join( threads[counter], NULL );
+    }
+   
+    printFirst500(0);
+    printFirst500(1);
+ 
+}
+
+void* threadFunc3(void* param){
+
+    int counter = 0;
+    for(counter = 0; counter < 10; counter++){
+        void* ptr = a_malloc(1);
+        a_free(ptr,1);
+    }
+
+}
+void checkThread3(int numThreads){
+    pthread_t* threads = (pthread_t*) malloc( numThreads  * sizeof(pthread_t) );
+
+    int counter = 0;
+    for(counter = 0; counter < numThreads; counter++){
+        pthread_create( &threads[counter], NULL, &threadFunc3, (void*)counter );
+    }
+
+    for(counter = 0; counter < numThreads; counter++){
+        pthread_join( threads[counter], NULL );
+    }
+ 
+}
+void checkPGSIZE(){
+    void* ptr = a_malloc( 4097 );
+    void* ptr2 = a_malloc( 8193 );
+
+    a_free(ptr, 4097);
+    a_free(ptr2, 8193);
+
+}
+
+void checkTLB(){
+    puts("First malloc");
+    char* ptr = a_malloc( 3 );
     
+    char buff[3] = {'\0'};
+    buff[0] = 'h';
+    buff[1] = 'i';
+
+    char res[3] = {'\0'};
+
+    puts("putting string into ptr. Should be tlb hit");
+    put_value((void*) ptr, (void*) buff, 3 );
+
+    puts("getting string from ptr and putting into res. Should be tlb hit");
+    get_value( (void*) ptr, (void*) res, 3);
+
+    puts("printing hit rate");
+    print_TLB_missrate();
+    
+
+}
+
+// make sure we split memory among hte pages correctly
+void checkPageSplit(){
+    // setting up so physical pages are not contig
+    void* ptr = a_malloc(1);
+    char* ptr2 = a_malloc(3);
+    
+    a_free(ptr, 1);
+
+    // store 3 bytes into ptr2
+    char buff[3] = {'\0'};
+    buff[0] = 'H';
+    buff[1] = 'i';
+    char res[3] = {'\0'};
+
+    // test if we are putting the string into ptr2 and getting it
+    puts("Putting buff into ptr2");
+    put_value( (void*) ptr2, (void*) buff, 3);
+    get_value( (void*) ptr2, (void*) res, 3 );
+    printf("buff: %s, res: %s\n",buff, res);
+
+    // now malloc two pages
+    int* intArr = a_malloc( 4098 );
+
+    int x = 10;
+
+    puts("\nJust getting to get the original phys addres");
+    put_value( (void*) intArr, (void*) buff, 1);
+    
+    // trying to put val into int arr
+    puts("\nTrying to put val into intArr");
+    put_value( (void*) ( ( (unsigned long) intArr) + 4094), &x, 4 );
+
+
+    puts("\nTrying to get chars from ptr2");
+    // check to see if we went past the physical page and messed stuff up
+    get_value( (void*) ptr2, (void*) res, 3 );
+    printf("buff: %s, res: %s\n",buff, res);
+    
+
 }
 
 int main(int argc, char** argv){
-    
-    checkThread(15);
-
+    checkPageSplit();
 }
