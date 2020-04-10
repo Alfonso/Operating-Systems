@@ -214,7 +214,6 @@ pte_t *translate(pde_t *pgdir, void *va) {
     if( pa != 0 ){
         // calculate the offset
         unsigned long offset = getOffValue( virtAddr );
-        printf("Offset: %lu\n",offset);
         // add the ofset to the pa
         pa += offset;
         return (pte_t*) pa;
@@ -232,7 +231,6 @@ pte_t *translate(pde_t *pgdir, void *va) {
 
     // calculate the offset
     unsigned long offset = getOffValue( virtAddr );
-    printf("Offset: %lu\n",offset);
 
     // need to check if the page of VPN is in use
     if( !( ( vpn > 0 ) && ( vpn < numVirtEntries - 1 ) ) || ( testBit( virtBitArr,vpn ) == 0 ) ){
@@ -499,7 +497,10 @@ void a_free(void *va, int size) {
 
     // cast the virtual address back
     unsigned long virtAddr = (unsigned long) va;
-    
+   
+    // we do not need to calculate the offset
+    // because the whole page is being freed
+ 
     // calculate the VPN
     // calculate the outer page directory index
     unsigned long pageDirIndex = getTopIndex( virtAddr );

@@ -8,7 +8,7 @@ void checkFree(){
     printf("a_free() call. Success\n");
     a_free( testPointer, 4097 );
 
-    printf("\na_free() call. Error\n");
+    printf("\na_free() call. Error. Freeing pointer twice\n");
     a_free( testPointer, 4097 );
 
     printf("\na_malloc() call. Success\n");
@@ -23,19 +23,19 @@ void checkNonContigPhys(){
     printf("a_malloc() call. Success\n");
     void* testPointer = a_malloc(1);
 
-    printf("a_malloc() call. Success\n");
+    printf("\na_malloc() call. Success\n");
     void* testPointer2 = a_malloc(1);
 
-    printf("a_malloc() call. Success\n");
+    printf("\na_malloc() call. Success\n");
     void* testPointer3 = a_malloc(1);
     
-    printf("a_free() call. success\n");
+    printf("\na_free() call on ptr2. success\n");
     a_free(testPointer2, 1);
 
-    printf("a_malloc() call. Success. Should be no contig bits\n");
+    printf("\na_malloc() call. Success. Should be no contig bits\n");
     testPointer2 = a_malloc(4096 * 2);
    
-    printf("a_malloc() call. Success. Should be virt bit 2\n");
+    printf("\na_malloc() call. Success. Should be virt bit 2\n");
     void* testPointer4 = a_malloc(1);
 
 }
@@ -270,5 +270,5 @@ void checkPageSplit(){
 }
 
 int main(int argc, char** argv){
-    checkPageSplit();
+    checkNonContigPhys();
 }
