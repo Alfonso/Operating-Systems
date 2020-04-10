@@ -575,14 +575,21 @@ void put_value(void *va, void *val, int size) {
     
     int tempSize = size;
 
+    // cast to unsigned long so we can move around the address
+    unsigned long virtAddr = (unsigned long) va;
+    // get the offset bits so we can remove it from VA
+    unsigned int offset = getOffValue( virtAddr );
+    virtAddr -= offset;
+
     int counter = 0;
     for( counter = 0; counter < numPages; counter++ ){
         // stop if we have copied everything over
         if( tempSize <= 0 ){
             break;
         }
-        // find the pa coresponding to this va
-        pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+        // find the pa coresponding to this va (we keep virtAddr and offset seperate so we can remove
+        // offset from it after first iteration
+        pa = (unsigned long) translate( NULL,(void*) (virtAddr + offset + (counter * PGSIZE)) );
         printf("after translate, PA IS: %lu\n",pa);
         if( pa == 0 ){
             // some sort of error
@@ -594,17 +601,17 @@ void put_value(void *va, void *val, int size) {
             return;
         }
 
-        // check if we need to only cpy tempSize or PGSize
-        if(tempSize < PGSIZE){
+        // check if we need to only cpy tempSize or the remaining mem in the pgae
+        if(tempSize <= PGSIZE - offset){
             // we need to only cpy tempSize
-            memcpy( (void*) pa,(void*)  (val + counter * PGSIZE) , tempSize );           
+            memcpy( (void*) pa,(void*)  (val + (size - tempSize)), tempSize );
         }else{
             // we need to copy a pages worth of mem
-            memcpy( (void*) pa, val + counter * PGSIZE, PGSIZE );
+            memcpy( (void*) pa, (void*) (val + (size - tempSize)), PGSIZE - offset );
             // subtract off the amount we just copied in
-            tempSize -= PGSIZE;           
+            tempSize -= (PGSIZE - offset);
         }
-        
+        offset = 0;
     }
             // unlock? lol
             pthread_mutex_unlock(&myMutex);
@@ -631,15 +638,21 @@ void get_value(void *va, void *val, int size) {
     
     int tempSize = size;
 
+    // cast to unsigned long so we can move around the address
+    unsigned long virtAddr = (unsigned long) va;
+    // get the offset bits so we can remove it from VA
+    unsigned int offset = getOffValue( virtAddr );
+    virtAddr -= offset;
+    
+
     int counter = 0;
     for( counter = 0; counter < numPages; counter++ ){
         // stop if we have copied everything over
         if( tempSize <= 0 ){
             break;
         }
-        
         // find the pa coresponding to this va
-        pa = (unsigned long) translate( NULL, va + (counter * PGSIZE) );
+        pa = (unsigned long) translate( NULL,(void*) ( virtAddr + offset + (counter * PGSIZE)) );
         if( pa == 0 ){
             // some sort of error
             printf("physical address is 0\n");
@@ -650,17 +663,17 @@ void get_value(void *va, void *val, int size) {
             return;
         }
 
-        // check if we need to only cpy tempSize or PGSize
-        if(tempSize < PGSIZE){
+        // check if we need to only cpy tempSize or remaining mem left in page
+        if(tempSize <= PGSIZE - offset){
             // we need to only cpy tempSize
-            memcpy( val + counter * PGSIZE, (void*) pa, tempSize );           
+            memcpy( val + (size - tempSize), (void*) pa, tempSize );           
         }else{
             // we need to copy a pages worth of mem
-            memcpy( val + counter * PGSIZE, (void*) pa, PGSIZE );
+            memcpy( val + (size - tempSize), (void*) pa, PGSIZE - offset );
             // subtract off the amount we just copied in
-            tempSize -= PGSIZE;           
+            tempSize -= (PGSIZE - offset);           
         }
-        
+        offset = 0;
     }
             
             // lock? lol

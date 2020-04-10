@@ -260,7 +260,12 @@ void checkPageSplit(){
     // check to see if we went past the physical page and messed stuff up
     get_value( (void*) ptr2, (void*) res, 3 );
     printf("buff: %s, res: %s\n",buff, res);
-    
+
+    int y = 0;
+    puts("\nTrying to see if the int was properly stored in intArr");
+    printf("x: %d, y: %d\n", x, y);   
+    get_value( (void*) (((unsigned long) intArr) + 4094), &y, 4);
+    printf("x: %d, y: %d\n", x, y);   
 
 }
 
