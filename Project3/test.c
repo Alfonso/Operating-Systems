@@ -256,7 +256,7 @@ void checkPageSplit(){
     put_value( (void*) ( ( (unsigned long) intArr) + 4094), &x, 4 );
 
 
-    puts("\nTrying to get chars from ptr2");
+    puts("\nTrying to get chars from ptr2. Checking if val of res has changed");
     // check to see if we went past the physical page and messed stuff up
     get_value( (void*) ptr2, (void*) res, 3 );
     printf("buff: %s, res: %s\n",buff, res);
@@ -270,5 +270,6 @@ void checkPageSplit(){
 }
 
 int main(int argc, char** argv){
-    checkNonContigPhys();
+    checkPutGet();
+
 }

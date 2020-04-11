@@ -591,7 +591,6 @@ void put_value(void *va, void *val, int size) {
         // find the pa coresponding to this va (we keep virtAddr and offset seperate so we can remove
         // offset from it after first iteration
         pa = (unsigned long) translate( NULL,(void*) (virtAddr + offset + (counter * PGSIZE)) );
-        printf("after translate, PA IS: %lu\n",pa);
         if( pa == 0 ){
             // some sort of error
             printf("physical address is 0\n");
