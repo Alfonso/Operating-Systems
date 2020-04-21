@@ -24,6 +24,19 @@
 
 char diskfile_path[PATH_MAX];
 
+/*
+ * Puts full path into buffer
+*/
+void tfs_fullpath(char fpath[PATH_MAX], const char* path){
+    
+    strcpy(fpath,"/ilab/users/ajb393/416/Project4/rootdir");
+    //getcwd(fpath,PATH_MAX);
+    strncat(fpath,path,PATH_MAX);
+    printf("fullpath(): %s\n",fpath);
+}
+
+
+
 // Declare your in-memory data structures here
 
 /* 
@@ -181,12 +194,24 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 	// Step 1: call get_node_by_path() to get inode from path
 
 	// Step 2: fill attribute of file into stbuf from inode
-
-		stbuf->st_mode   = S_IFDIR | 0755;
+		
+        /*
+        stbuf->st_mode   = S_IFDIR | 0755;
 		stbuf->st_nlink  = 2;
 		time(&stbuf->st_mtime);
+        */
+  
+    int retstat;
+    char fpath[PATH_MAX];
+    tfs_fullpath(fpath,path);
+    retstat = lstat(fpath,stbuf);
+    printf("getattr(): resttat: %d\n",retstat);
+    if(retstat == 0)
+        return 0;
+    printf("getattr(): error is %s\n",strerror(errno));
+    retstat = -1*errno;
 
-	return 0;
+  	return retstat;
 }
 
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
@@ -203,6 +228,8 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 	// Step 1: Call get_node_by_path() to get inode from path
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
+
+    puts("READDIR():");
 
 	return 0;
 }
@@ -221,7 +248,12 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 	// Step 5: Update inode for target directory
 
 	// Step 6: Call writei() to write inode to disk
-	
+
+    char fpath[PATH_MAX];
+    tfs_fullpath(fpath,path);
+    printf("Trying to makedir: %s\n",fpath);
+
+	mkdir(fpath,S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 
 	return 0;
 }
