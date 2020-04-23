@@ -26,7 +26,7 @@ char diskfile_path[PATH_MAX];
 
 /*
  * Puts full path into buffer
-*/
+
 void tfs_fullpath(char fpath[PATH_MAX], const char* path){
     
     strcpy(fpath,"/ilab/users/ajb393/416/Project4/rootdir");
@@ -34,7 +34,7 @@ void tfs_fullpath(char fpath[PATH_MAX], const char* path){
     strncat(fpath,path,PATH_MAX);
     printf("fullpath(): %s\n",fpath);
 }
-
+*/
 
 
 // Declare your in-memory data structures here
@@ -153,16 +153,33 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 int tfs_mkfs() {
 
 	// Call dev_init() to initialize (Create) Diskfile
+    dev_init(diskfile_path);
 
 	// write superblock information
+    struct superblock* sb = (struct superblock*) malloc( sizeof(struct superblock) );
+    sb->magic_num = MAGIC_NUM;
+    sb->max_inum = MAX_INUM;
+    sb->max_dnum = MAX_DNUM;
+
+    /*                  IS THIS RIGHT?                  */
+    sb->i_bitmap_blk = 1;
+    sb->d_bitmap_blk = 2;
+    sb->i_start_blk = 3;
+    sb->d_start_blk = 67;
+    /*                  IS THIS RIGHT?                  */
+    bio_write(0,(void*) sb);
 
 	// initialize inode bitmap
 
+
 	// initialize data block bitmap
+
 
 	// update bitmap information for root directory
 
+
 	// update inode for root directory
+
 
 	return 0;
 }
@@ -174,6 +191,18 @@ int tfs_mkfs() {
 static void *tfs_init(struct fuse_conn_info *conn) {
 
 	// Step 1a: If disk file is not found, call mkfs
+    if( dev_open(diskfile_path) == -1 ){
+        puts("FIRST TIME WE RUN INIT");
+        tfs_mkfs();
+    }else{
+        puts("NOT FIRST TIME WE RUN IT");
+        char buffer[BLOCK_SIZE];
+        bio_read(0,(void*) buffer);
+        struct superblock* sb = (struct superblock*) buffer;
+        printf("max_inum: %u, max_dnum: %u\n",(unsigned int) sb->max_inum,(unsigned int) sb->max_dnum);
+        
+    }
+
 
   // Step 1b: If disk file is found, just initialize in-memory data structures
   // and read superblock from disk
@@ -195,11 +224,12 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 2: fill attribute of file into stbuf from inode
 		
-        /*
+        
         stbuf->st_mode   = S_IFDIR | 0755;
 		stbuf->st_nlink  = 2;
 		time(&stbuf->st_mtime);
-        */
+        
+/*
   
     int retstat;
     char fpath[PATH_MAX];
@@ -210,8 +240,8 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
         return 0;
     printf("getattr(): error is %s\n",strerror(errno));
     retstat = -1*errno;
-
-  	return retstat;
+*/
+  	return 0;
 }
 
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
@@ -220,6 +250,21 @@ static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
 
 	// Step 2: If not find, return -1
 
+
+
+
+/*
+    DIR* dp;
+    int retstat = 0;
+    char fpath[PATH_MAX];
+
+    tfs_fullpath(fpath,path);
+    dp = opendir(fpath);
+    if(dp == NULL)
+        retstat = -errno;
+
+    fi->fh = (intptr_t) dp;
+*/
     return 0;
 }
 
@@ -229,8 +274,28 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 
-    puts("READDIR():");
 
+/*
+    int retstat = 0;
+    DIR* dp;
+    struct dirent* de;
+
+    dp = (DIR*) (uintptr_t) fi->fh;
+
+    // set errno to 0?
+    errno = 0;
+    de = readdir(dp);
+    if(de == 0){
+        retstat = -errno;
+        return retstat;
+    }
+    
+    do{
+        if(filler(buffer,de->d_name,NULL,0) != 0){
+            return -ENOMEM;
+        }
+    }while( (de = readdir(dp)) != NULL);
+*/
 	return 0;
 }
 
@@ -249,12 +314,15 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 
 	// Step 6: Call writei() to write inode to disk
 
+
+/*
     char fpath[PATH_MAX];
     tfs_fullpath(fpath,path);
     printf("Trying to makedir: %s\n",fpath);
 
-	mkdir(fpath,S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-
+	//mkdir(fpath,S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    mkdir(fpath,mode);
+*/
 	return 0;
 }
 
@@ -272,6 +340,14 @@ static int tfs_rmdir(const char *path) {
 
 	// Step 6: Call dir_remove() to remove directory entry of target directory in its parent directory
 
+
+
+/*
+    char fpath[PATH_MAX];
+    tfs_fullpath(fpath,path);
+    printf("Trying to rmdir: %s\n",fpath);
+    rmdir(fpath);
+*/
 	return 0;
 }
 
@@ -295,6 +371,30 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 
 	// Step 6: Call writei() to write inode to disk
 
+
+
+
+/*
+    int retstat = 0;
+    char fpath[PATH_MAX];
+    tfs_fullpath(fpath,path);
+    
+    if(S_ISREG(mode)){
+        open(fpath, O_CREAT | O_EXCL | O_WRONLY, mode);
+        retstat = -errno;
+    }else
+        if(S_ISFIFO(mode)){
+            if(retstat >= 0){
+                close(retstat);
+                retstat = -errno;
+            }
+        }else{
+            if(S_ISFIFO(mode)){
+                mkfifo(fpath,mode);
+                retstat = -errno;
+            }
+        }
+*/
 	return 0;
 }
 
@@ -401,7 +501,11 @@ static struct fuse_operations tfs_ope = {
 int main(int argc, char *argv[]) {
 	int fuse_stat;
 
-	getcwd(diskfile_path, PATH_MAX);
+    printf("THE SIZE OF AN INODE IS: %lu\n", sizeof(struct inode));
+    printf("THE SIZE OF A DIRENT IS: %lu\n", sizeof(struct dirent));
+    printf("THE SIEZ OF A SUPERBLOCK IS: %lu\n",sizeof(struct superblock));
+	
+    getcwd(diskfile_path, PATH_MAX);
 	strcat(diskfile_path, "/DISKFILE");
 
 	fuse_stat = fuse_main(argc, argv, &tfs_ope, NULL);
