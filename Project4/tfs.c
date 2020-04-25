@@ -24,18 +24,9 @@
 
 char diskfile_path[PATH_MAX];
 
-/*
- * Puts full path into buffer
-
-void tfs_fullpath(char fpath[PATH_MAX], const char* path){
-    
-    strcpy(fpath,"/ilab/users/ajb393/416/Project4/rootdir");
-    //getcwd(fpath,PATH_MAX);
-    strncat(fpath,path,PATH_MAX);
-    printf("fullpath(): %s\n",fpath);
-}
-*/
-
+/*                  GLOBALS                 */
+int inodesPerBlock = BLOCK_SIZE / sizeof(struct inode);
+struct superblock* sb;
 
 // Declare your in-memory data structures here
 
@@ -72,11 +63,41 @@ int get_avail_blkno() {
  */
 int readi(uint16_t ino, struct inode *inode) {
 
-  // Step 1: Get the inode's on-disk block number
+    // Step 1: Get the inode's on-disk block number
+    // in relation to the inode table
+    int blockNum = ino / inodesPerBlock;
+  
+    // Step 2: Get offset of the inode in the inode on-disk block
+    int blockOffset = ino % inodesPerBlock;
 
-  // Step 2: Get offset of the inode in the inode on-disk block
+    // Step 3: Read the block from disk and then copy into inode structure
+    int diskBlock = blockNum + sb->i_start_blk;
+    char buffer[BLOCK_SIZE];
+    
+    /*                  NEED TO CHECK IF THIS FAILS                 */
+    bio_read(diskBlock, (void*) buffer);
+    
+    char* ibuff = (char*) malloc(sizeof(struct inode));
+    int counter = 0;
+    for(counter = 0; counter < sizeof(struct inode); counter++){
+        ibuff[counter] = buffer[blockOffset * sizeof(struct inode) + counter];
+    }
 
-  // Step 3: Read the block from disk and then copy into inode structure
+    /*                 WHY DOES THIS WAY NOT WORK?                 */
+    //inode = ((struct inode*) ibuff);
+    /*                  SO WE HAVE TO DO THEM ONE BY ONE            */
+    inode->ino = ((struct inode*) ibuff)->ino;
+    inode->valid = ((struct inode*) ibuff)->valid;
+    inode->size = ((struct inode*) ibuff)->size;
+    inode->type = ((struct inode*) ibuff)->type;
+    inode->link = ((struct inode*) ibuff)->link;
+    /*                  Do we need to loop through dat?                 */
+    memcpy(inode->direct_ptr,((struct inode*) ibuff)->direct_ptr,sizeof(inode->direct_ptr));
+    memcpy(inode->indirect_ptr,((struct inode*) ibuff)->indirect_ptr,sizeof(inode->indirect_ptr));
+    inode->vstat = ((struct inode*) ibuff)->vstat;
+    
+    /*                  test                    */
+    printf("readi(): NODE: ino: %d, valid: %d ,type: %d\n",inode->ino,inode->valid,inode->type);
 
 	return 0;
 }
@@ -84,10 +105,35 @@ int readi(uint16_t ino, struct inode *inode) {
 int writei(uint16_t ino, struct inode *inode) {
 
 	// Step 1: Get the block number where this inode resides on disk
+    // in relation to the inode table
+    int blockNum = ino / inodesPerBlock;
 	
 	// Step 2: Get the offset in the block where this inode resides on disk
+    int blockOffset = ino % inodesPerBlock;
 
 	// Step 3: Write inode to disk 
+    // create a buffer to move the data to offset in buffer
+    char buffer[BLOCK_SIZE];
+    // calcualte where in disk
+    int diskBlock = blockNum + sb->i_start_blk;
+    
+
+    /*                  ERROR CHECK THIS                    */
+    // read the data already in that block
+    bio_read(diskBlock,(void*) buffer);
+    
+    // add new inode / inode changes to buffer
+    char* ibuff = (char*) inode;
+    int counter = 0;
+    for(counter = 0; counter < sizeof(struct inode); counter++){
+        buffer[blockOffset * sizeof(struct inode) + counter] = ibuff[counter];
+    }
+
+    // write the block back to file
+    bio_write(diskBlock, (void*) buffer);
+
+    /*                  test                    */
+    printf("writeI(): inode type: %d\n",inode->type);
 
 	return 0;
 }
@@ -155,8 +201,9 @@ int tfs_mkfs() {
 	// Call dev_init() to initialize (Create) Diskfile
     dev_init(diskfile_path);
 
+
 	// write superblock information
-    struct superblock* sb = (struct superblock*) malloc( sizeof(struct superblock) );
+    sb = (struct superblock*) malloc( sizeof(struct superblock) );
     sb->magic_num = MAGIC_NUM;
     sb->max_inum = MAX_INUM;
     sb->max_dnum = MAX_DNUM;
@@ -170,17 +217,32 @@ int tfs_mkfs() {
     bio_write(0,(void*) sb);
 
 	// initialize inode bitmap
-
+    bitmap_t ibit = (bitmap_t) malloc( sizeof(char) * MAX_INUM / 8);
 
 	// initialize data block bitmap
-
+    bitmap_t dbit = (bitmap_t) malloc( sizeof(char) * MAX_DNUM / 8);
 
 	// update bitmap information for root directory
-
+    set_bitmap(ibit,0);
 
 	// update inode for root directory
-
-
+    struct inode* rootI = (struct inode*) malloc( sizeof(struct inode) );
+    /*                  IS THIS RIGHT?                  */
+    rootI->ino = 0;
+    rootI->valid = 1;
+    rootI->size = 0;
+    rootI->type = 1;
+    rootI->link = 0;
+    /*                  IS THIS RIGHT?                  */
+    
+    //write them all to the file
+    // write ibit to file
+    bio_write(1,(void*) ibit);
+    // write dbit to file
+    bio_write(2,(void*) dbit);
+    // write root inode to file
+    writei(0,rootI);
+    
 	return 0;
 }
 
@@ -195,17 +257,20 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         puts("FIRST TIME WE RUN INIT");
         tfs_mkfs();
     }else{
+        // Step 1b: If disk file is found, just initialize in-memory data structures
+        // and read superblock from disk
         puts("NOT FIRST TIME WE RUN IT");
         char buffer[BLOCK_SIZE];
         bio_read(0,(void*) buffer);
-        struct superblock* sb = (struct superblock*) buffer;
+        sb = (struct superblock*) buffer;
+        // test if the super block data saved
         printf("max_inum: %u, max_dnum: %u\n",(unsigned int) sb->max_inum,(unsigned int) sb->max_dnum);
-        
+        struct inode* root = (struct inode*) malloc(sizeof(struct inode));
+        readi(0,root);
+        printf("root: ino: %d, size: %d, type: %d, valid: %d\n",root->ino,root->size,root->type,root->valid);
     }
 
 
-  // Step 1b: If disk file is found, just initialize in-memory data structures
-  // and read superblock from disk
 
 	return NULL;
 }
