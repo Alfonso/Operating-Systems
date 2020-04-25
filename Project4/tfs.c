@@ -34,14 +34,37 @@ struct superblock* sb;
  * Get available inode number from bitmap
  */
 int get_avail_ino() {
-
+    
+    
 	// Step 1: Read inode bitmap from disk
-	
+    
+    /*                  CAN WE ASSUME THAT BITMAP IS ON 2ND BLOCK(idx 1)                   */
+    char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    char* ibuff = (char*) malloc( sizeof(char) * (MAX_INUM / 8));
+    bio_read(1, (void*) buffer);
+    
+    // copy first bytes to ibuff
+    int counter = 0;
+    for(counter = 0; counter < MAX_INUM / 8; counter++){
+        ibuff[counter] = buffer[counter];
+    }
+
+    // cast bitmap
+    bitmap_t ibit = (bitmap_t) ibuff;
+
 	// Step 2: Traverse inode bitmap to find an available slot
+    for(counter = 0; counter < MAX_INUM; counter++){
+        if( get_bitmap(ibit,counter) == 0 ){
+            // counter is now the ino that is fre
+            break;
+        }
+    }
 
 	// Step 3: Update inode bitmap and write to disk 
-
-	return 0;
+    set_bitmap(ibit,counter); 
+    bio_write(1,(void*) ibit);
+    
+	return counter;
 }
 
 /* 
@@ -50,12 +73,34 @@ int get_avail_ino() {
 int get_avail_blkno() {
 
 	// Step 1: Read data block bitmap from disk
+    /*                  CAN WE ASSUME THAT BITMAP IS ON 3RD BLOCK (IDX 2)                   */
+    /*                  CAN WE ASSUME THAT BITMAP IS ON 3RD BLOCK (IDX 2)                   */
+    char* dbuff = (char*) malloc( sizeof(char) * (MAX_DNUM / 8));
+    char* buffer = (char*) malloc( sizeof(char) * BLOCK_SIZE);
+    bio_read(2,(void*) buffer);
+    
+    // copy first bytes to dbuff
+    int counter = 0;
+    for(counter = 0; counter < MAX_DNUM / 8; counter++){
+        dbuff[counter] = buffer[counter];
+    }
 	
-	// Step 2: Traverse data block bitmap to find an available slot
+    // cast bitmap
+    bitmap_t dbit = (bitmap_t) dbuff;
+	
+    // Step 2: Traverse data block bitmap to find an available slot
+    for(counter = 0; counter < MAX_DNUM; counter++){
+        if( get_bitmap(dbit,counter) == 0 ){
+            // counter is now the ino that is fre
+            break;
+        }
+    }
 
 	// Step 3: Update data block bitmap and write to disk 
+    set_bitmap(dbit,counter); 
+    bio_write(2,(void*) dbit);
 
-	return 0;
+	return counter;
 }
 
 /* 
@@ -131,9 +176,6 @@ int writei(uint16_t ino, struct inode *inode) {
 
     // write the block back to file
     bio_write(diskBlock, (void*) buffer);
-
-    /*                  test                    */
-    printf("writeI(): inode type: %d\n",inode->type);
 
 	return 0;
 }
@@ -218,9 +260,13 @@ int tfs_mkfs() {
 
 	// initialize inode bitmap
     bitmap_t ibit = (bitmap_t) malloc( sizeof(char) * MAX_INUM / 8);
-
+    // set them to 0
+    bzero(ibit,MAX_INUM / 8);
+    
 	// initialize data block bitmap
     bitmap_t dbit = (bitmap_t) malloc( sizeof(char) * MAX_DNUM / 8);
+    // set them to 0
+    bzero(dbit,MAX_DNUM / 8);
 
 	// update bitmap information for root directory
     set_bitmap(ibit,0);
@@ -265,12 +311,24 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         sb = (struct superblock*) buffer;
         // test if the super block data saved
         printf("max_inum: %u, max_dnum: %u\n",(unsigned int) sb->max_inum,(unsigned int) sb->max_dnum);
+
+
+        /*                  TESTING READI                   */
         struct inode* root = (struct inode*) malloc(sizeof(struct inode));
         readi(0,root);
         printf("root: ino: %d, size: %d, type: %d, valid: %d\n",root->ino,root->size,root->type,root->valid);
+            
+
+        /*                  TESTING inode and data bitmap gets                  */
+        int test = get_avail_ino();
+        printf("test: %d\n",test);
+        test = get_avail_ino();
+        printf("test: %d\n",test);
+        int blktest = get_avail_blkno();
+        printf("blktest: %d\n",blktest);
+        blktest = get_avail_blkno();
+        printf("blktest: %d\n",blktest);
     }
-
-
 
 	return NULL;
 }
