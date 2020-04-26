@@ -26,6 +26,7 @@ char diskfile_path[PATH_MAX];
 
 /*                  GLOBALS                 */
 int inodesPerBlock = BLOCK_SIZE / sizeof(struct inode);
+int direntsPerBlock = BLOCK_SIZE / sizeof(struct dirent);
 struct superblock* sb;
 
 // Declare your in-memory data structures here
@@ -56,15 +57,15 @@ int get_avail_ino() {
     for(counter = 0; counter < MAX_INUM; counter++){
         if( get_bitmap(ibit,counter) == 0 ){
             // counter is now the ino that is fre
-            break;
+	        // Step 3: Update inode bitmap and write to disk 
+            set_bitmap(ibit,counter); 
+            bio_write(1,(void*) ibit);
+            // return the found node
+            return counter;
         }
     }
-
-	// Step 3: Update inode bitmap and write to disk 
-    set_bitmap(ibit,counter); 
-    bio_write(1,(void*) ibit);
-    
-	return counter;
+    // did not find a node
+	return -1;
 }
 
 /* 
@@ -92,15 +93,15 @@ int get_avail_blkno() {
     for(counter = 0; counter < MAX_DNUM; counter++){
         if( get_bitmap(dbit,counter) == 0 ){
             // counter is now the ino that is fre
-            break;
+	        // Step 3: Update data block bitmap and write to disk 
+            set_bitmap(dbit,counter); 
+            bio_write(2,(void*) dbit);
+            // return the block number
+            return counter;
         }
     }
 
-	// Step 3: Update data block bitmap and write to disk 
-    set_bitmap(dbit,counter); 
-    bio_write(2,(void*) dbit);
-
-	return counter;
+	return -1;
 }
 
 /* 
@@ -142,7 +143,7 @@ int readi(uint16_t ino, struct inode *inode) {
     inode->vstat = ((struct inode*) ibuff)->vstat;
     
     /*                  test                    */
-    printf("readi(): NODE: ino: %d, valid: %d ,type: %d\n",inode->ino,inode->valid,inode->type);
+    //printf("readi(): NODE: ino: %d, valid: %d ,type: %d\n",inode->ino,inode->valid,inode->type);
 
 	return 0;
 }
@@ -183,32 +184,182 @@ int writei(uint16_t ino, struct inode *inode) {
 
 /* 
  * directory operations
+ * returns 0 on success -1 on failure
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
-  // Step 1: Call readi() to get the inode using ino (inode number of current directory)
+    printf("find(): Trying to find: %s\n",fname);
 
-  // Step 2: Get data block of current directory from inode
+    // Step 1: Call readi() to get the inode using ino (inode number of current directory)
+    struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    readi(ino,inode);
 
-  // Step 3: Read directory's data block and check each directory entry.
-  //If the name matches, then copy directory entry to dirent structure
+    // Step 2: Get data block of current directory from inode
+    int directPtrIdx = 0;
+    int blockIdx = 0;
+    // loop through all of the ptrs
+    for(directPtrIdx = 0; directPtrIdx < (sizeof(inode->direct_ptr) / sizeof(int)); directPtrIdx++){
+        // if it actually points to something
+        if( (inode->direct_ptr)[directPtrIdx] >= 0 ){
+        
+            // copy whole block into buffer
+            char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            int blockNum = (inode->direct_ptr)[directPtrIdx] + sb->d_start_blk;
+            bio_read( blockNum, (void*) buffer);
+        
+            // loop through all of the dirents in a block
+            for(blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++){
+                // we want to only copy the bytes of a dirent into this buffer
+                char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                int direntIdx = 0;
+                // copy byte by byte to our dirent buffer
+                for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                    dbuff[direntIdx] = buffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                }
 
-	return 0;
+                // check if the dirent is valid
+                if(((struct dirent*) dbuff)->valid == 0){
+                    // it is not so continue
+                    continue;
+                }
+                // check if the name is the same
+                if( strcmp( ((struct dirent*) dbuff)->name, fname ) == 0 ){
+                    // they are the same so copy all data into our dirent parameter and return
+                    dirent->ino = ((struct dirent*) dbuff)->ino;
+                    dirent->valid = ((struct dirent*) dbuff)->valid;
+                    dirent->len = ((struct dirent*) dbuff)->len;
+                    strcpy( dirent->name, ((struct dirent*) dbuff)->name );
+                    return 0;
+                }
+                // they are not the same, move onto next dirent
+            }
+        }
+    }
+
+    // Step 3: Read directory's data block and check each directory entry.
+    //If the name matches, then copy directory entry to dirent structure
+
+    // return -1 because it failed to find it
+	return -1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
-	
 	// Step 2: Check if fname (directory name) is already used in other entries
+   
+    printf("add(): Trying to add file %s\n", fname);
+ 
+    struct dirent* dirent = (struct dirent*) malloc(sizeof(struct dirent));
+    int inUse = dir_find(dir_inode.ino, fname, name_len,dirent);
+
+    if( inUse == 0 ){
+        // name is in use
+        puts("name is in use");
+        return -1;
+    }
 
 	// Step 3: Add directory entry in dir_inode's data block and write to disk
+    int directPtrIdx = 0;
+    // keep track of the first non valid block
+    int firstPtr = -1;
+    // keep track if we wrote the dirent to the block
+    int wroteDir = 0;
+    // loop through all of the valid blocks
+    for(directPtrIdx = 0; directPtrIdx < (sizeof(dir_inode.direct_ptr) / sizeof(int)); directPtrIdx++){
+        // check if the curr index points to a block
+        if( dir_inode.direct_ptr[directPtrIdx] >= 0 ){
+            // now we need to loop through all of the dirents
+            int blockIdx = 0;
+            char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            int blockNum = (dir_inode.direct_ptr)[directPtrIdx] + sb->d_start_blk;
+            bio_read( blockNum, (void*) buffer);
+            
+            // loop through them
+            for(blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++){
+                // we want to only copy the bytes of a dirent into this buffer
+                char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                int direntIdx = 0;
+                // copy byte by byte to our dirent buffer
+                for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                    dbuff[direntIdx] = buffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                }
+
+                // check if the dirent is valid
+                if(((struct dirent*) dbuff)->valid == 0){
+                    // it is not so fill it here
+                    wroteDir = 1;
+                    ((struct dirent*) dbuff)->valid = 1;
+                    ((struct dirent*) dbuff)->ino = f_ino;
+                    ((struct dirent*) dbuff)->len = name_len;
+                    strcpy( ((struct dirent*) dbuff)->name, fname);
+                    // put this back into the block buffer
+                    for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                        buffer[direntIdx + blockIdx * sizeof(struct dirent)] = dbuff[direntIdx];
+                    }
+                    // write this block back to disk
+                    bio_write( blockNum, (void*) buffer);
+                    // we are done with this so break out
+                    break;
+                }
+            }
+            
+        }else{
+            if( firstPtr == -1 ){
+                // keeping track of that first non valid block index
+                firstPtr = directPtrIdx;
+            }
+        }
+        // if we already wrote dir to file we can break out
+        if( wroteDir == 1 )
+            break;
+    }
 
 	// Allocate a new data block for this directory if it does not exist
+    // check if we wrote the dir (we only did if there was a free dirent)
+    if( wroteDir == 0 ){
+        // check if we have a free ptr
+        if( firstPtr == -1 ){
+            // we dont have any, and have not already written the dirent
+            // thus we have no more space
+            puts("No more space in directory");
+            return -1;
+        }
+
+        // we have the first free ptr idx that we can allocate a new block for
+        // find the next available data block (idx starting from data segment)
+        int newDataBlock = get_avail_blkno();
+        if(newDataBlock == -1){
+            // no free data block
+            return -1;
+        }
+        // make ptr point to new data block
+        dir_inode.direct_ptr[firstPtr] = newDataBlock;
+        // add data
+        struct dirent* tempDir = (struct dirent*) malloc( sizeof(struct dirent) );
+        tempDir->ino = f_ino;
+        tempDir->valid = 1;
+        tempDir->len = name_len;
+        strcpy( tempDir->name, fname);
+        // cast it to a buffer
+        char* dbuff = (char*) tempDir;
+        // create a block buffer and add this
+        char* buffer = (char*) malloc( sizeof(char*) * BLOCK_SIZE);
+        // copy over dirent to block buffer
+        int counter = 0;
+        for(counter = 0; counter < sizeof(struct dirent); counter++){
+            buffer[counter] = dbuff[counter];
+        }
+        // write it to the disk (newDataBlock is 0 indexed from data segment. Have to incldue blocks before)
+        bio_write( newDataBlock + sb->d_start_blk, (void*) buffer);
+    }
 
 	// Update directory inode
+    // UDATE SIZE                               ********
 
-	// Write directory entry
+
+	// Write directory entry to disk
+    writei(dir_inode.ino, &dir_inode);
 
 	return 0;
 }
@@ -279,6 +430,15 @@ int tfs_mkfs() {
     rootI->size = 0;
     rootI->type = 1;
     rootI->link = 0;
+    // loop through all values and set them to -1
+    int counter = 0;
+    for(counter = 0; counter < (sizeof(rootI->direct_ptr) / sizeof(int)); counter++){
+        (rootI->direct_ptr)[counter] = -1;
+    }
+    for(counter = 0; counter < (sizeof(rootI->indirect_ptr) / sizeof(int)); counter++){
+        (rootI->indirect_ptr)[counter] = -1;
+    }
+    //rootI->vstat =                                                        ****???????
     /*                  IS THIS RIGHT?                  */
     
     //write them all to the file
@@ -320,6 +480,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
             
 
         /*                  TESTING inode and data bitmap gets                  */
+        /*
         int test = get_avail_ino();
         printf("test: %d\n",test);
         test = get_avail_ino();
@@ -328,6 +489,31 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         printf("blktest: %d\n",blktest);
         blktest = get_avail_blkno();
         printf("blktest: %d\n",blktest);
+        */
+
+
+        /*                  TESTING dir add and dir find                    */
+        
+        int addRes = dir_add(*root,2,"test.txt",9);
+        struct dirent* tempDir = (struct dirent*) malloc(sizeof(struct dirent));
+        int findRes = dir_find(0,"test.txt",9,tempDir);
+        printf("add: %d, find: %d\n",addRes,findRes);
+
+        // need to grab the most recent version of root
+        readi(0,root);
+
+        int counter = 0;
+        printf("PTRS: ");
+        for(counter = 0; counter < 16; counter++){
+            printf("%d",(root->direct_ptr)[counter]);
+        }
+        puts("");
+        
+        addRes = dir_add(*root,2,"test2.txt",10);
+        struct dirent* tempDir2 = (struct dirent*) malloc(sizeof(struct dirent));
+        findRes = dir_find(0,"test2.txt",10,tempDir2);
+        printf("add2: %d, find2: %d\n",addRes,findRes);
+
     }
 
 	return NULL;
