@@ -188,8 +188,6 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
-    printf("find(): Trying to find: %s\n",fname);
-
     // Step 1: Call readi() to get the inode using ino (inode number of current directory)
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
     readi(ino,inode);
@@ -243,12 +241,15 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 	return -1;
 }
 
+/*
+ *Returns:
+ * 0 on success
+ * -1 on failure
+*/
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	// Step 2: Check if fname (directory name) is already used in other entries
-   
-    printf("add(): Trying to add file %s\n", fname);
  
     struct dirent* dirent = (struct dirent*) malloc(sizeof(struct dirent));
     int inUse = dir_find(dir_inode.ino, fname, name_len,dirent);
@@ -364,15 +365,80 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	return 0;
 }
 
+/*
+ *Returns:
+ * 0 on success
+ * -1 on failure
+*/
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and checks each directory entry of dir_inode
 	
 	// Step 2: Check if fname exist
+    // call dir_find() to see if the file/directory exists
+    struct dirent* dirent = (struct dirent*) malloc(sizeof(struct dirent));
+    int inUse = dir_find(dir_inode.ino, fname, name_len, dirent);
+    
+    if( inUse == -1 ){
+        puts("Name is not in use");
+        return -1;
+    }
 
 	// Step 3: If exist, then remove it from dir_inode's data block and write to disk
+    int directPtrIdx = 0;
+    int blockIdx = 0;
+    // loop through all the pointers to find which block and where in that block
+    // this dirent exists
+    for(directPtrIdx = 0; directPtrIdx < (sizeof(dir_inode.direct_ptr) / sizeof(int)); directPtrIdx++){
+        // if it actually points to something
+        if( (dir_inode.direct_ptr)[directPtrIdx] >= 0 ){
+            
+            // copy the whole block into our buffer
+            char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            int blockNum = (dir_inode.direct_ptr)[directPtrIdx] + sb->d_start_blk;
+            bio_read( blockNum, (void*) buffer );
 
-	return 0;
+            // loop through all of the dirents inside this block
+            for( blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++){
+                // we want to only copy the bytes of a dirent into this buffer
+                char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                int direntIdx = 0;
+                // copy byte by byte to our dirent buffer
+                for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                    dbuff[direntIdx] = buffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                }
+
+                // check if the dirent is valid
+                if( ((struct dirent*) dbuff)->valid == 0 ){
+                    // it is not valid so continue to try and find another dirent
+                    continue;
+                }
+                
+                // check if the name is the same
+                if( strcmp( ((struct dirent*) dbuff)->name, fname ) == 0 ){
+                    // they are the same so "delete" this dirent by setting valid
+                    ((struct dirent*) dbuff)->valid = 0;
+                    // copy this change back to the block buffer
+                    for(direntIdx = 0 ; direntIdx < sizeof(struct dirent); direntIdx++){
+                        buffer[direntIdx + blockIdx * sizeof(struct dirent)] = dbuff[direntIdx];
+                    }
+                    // write the block buffer back to the disk
+                    bio_write( blockNum, (void*) buffer);
+                    
+                    // update the directory inode info?                                     *******
+                    // SOMETHING ABOUT ITS SIZE
+                    // write this directory inode back to disk
+
+                    // return 0 for success
+                    return 0;
+                }
+            }
+        }
+    }
+    
+
+    // it did not find the dirent?
+	return -1;
 }
 
 /* 
@@ -494,7 +560,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
         /*                  TESTING dir add and dir find                    */
         
-        int addRes = dir_add(*root,2,"test.txt",9);
+        int addRes = dir_add(*root,1,"test.txt",9);
         struct dirent* tempDir = (struct dirent*) malloc(sizeof(struct dirent));
         int findRes = dir_find(0,"test.txt",9,tempDir);
         printf("add: %d, find: %d\n",addRes,findRes);
@@ -513,6 +579,23 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         struct dirent* tempDir2 = (struct dirent*) malloc(sizeof(struct dirent));
         findRes = dir_find(0,"test2.txt",10,tempDir2);
         printf("add2: %d, find2: %d\n",addRes,findRes);
+
+        /*                  TESTING dir remove                  */
+        int remRes = dir_remove(*root, "test.txt",9);
+        struct dirent* tempDir3 = (struct dirent*) malloc(sizeof(struct dirent));
+        findRes = dir_find(0,"test.txt",9,tempDir3);
+        printf("file1 remove: %d, find: %d\n",remRes,findRes);
+        
+
+        remRes = dir_remove(*root, "test2.txt",10);
+        struct dirent* tempDir4 = (struct dirent*) malloc(sizeof(struct dirent));
+        findRes = dir_find(0,"test2.txt",10,tempDir4);
+        printf("file2 remove: %d, find: %d\n",remRes,findRes);
+
+        remRes = dir_remove(*root,"test.txt",9);
+        struct dirent* tempDir5 = (struct dirent*) malloc(sizeof(struct dirent));
+        findRes = dir_find(0,"test.txt",0,tempDir5);
+        printf("file1 (2nd time) remove: %d, find: %d\n",remRes,findRes);
 
     }
 
