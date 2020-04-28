@@ -356,7 +356,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
     }
 
 	// Update directory inode
-    // UDATE SIZE                               ********
+    // UDATE SIZE                                                       ********
 
 
 	// Write directory entry to disk
@@ -443,11 +443,47 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 
 /* 
  * namei operation
+ * returns:
+ * 0 on success
+ * -1 on failure
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
+
+    
+    // create copy of the path
+    char tempPath[PATH_MAX];
+    strcpy(tempPath,path);
+    
+    // tokenize the path by forward slashes
+    char* token;
+    token = strtok(tempPath,"/");
+    // we want to keep return value of dir_find so we can check if it was found
+    int findRes = 0;
+    // we want to keep the ino of the current directory
+    int curIno = ino;
+    // we need to keep getting the ino of each subsequent dirent in the curr directory
+    struct dirent* dirent = (struct dirent*) malloc(sizeof(struct dirent));
+
+    // loop through the whole path
+    while( token != NULL ){
+        // try to find the dirent
+        findRes = dir_find( curIno, token,strlen(token),dirent);
+        // check if it is found in curr directory
+        if( findRes == -1 ){
+            printf("%s is not found\n",token);
+            return -1;
+        }
+        // change the "root" directory
+        curIno = dirent->ino;
+        // update the "root" directory name
+        token = strtok(NULL, "/");
+    }
+
+    // get the inode data
+    readi(curIno, inode);
 
 	return 0;
 }
@@ -559,7 +595,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
 
         /*                  TESTING dir add and dir find                    */
-        
+        /*
         int addRes = dir_add(*root,1,"test.txt",9);
         struct dirent* tempDir = (struct dirent*) malloc(sizeof(struct dirent));
         int findRes = dir_find(0,"test.txt",9,tempDir);
@@ -567,7 +603,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
         // need to grab the most recent version of root
         readi(0,root);
-
+        // print all of the ptrs that are in root
         int counter = 0;
         printf("PTRS: ");
         for(counter = 0; counter < 16; counter++){
@@ -579,8 +615,10 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         struct dirent* tempDir2 = (struct dirent*) malloc(sizeof(struct dirent));
         findRes = dir_find(0,"test2.txt",10,tempDir2);
         printf("add2: %d, find2: %d\n",addRes,findRes);
+        */
 
         /*                  TESTING dir remove                  */
+        /*
         int remRes = dir_remove(*root, "test.txt",9);
         struct dirent* tempDir3 = (struct dirent*) malloc(sizeof(struct dirent));
         findRes = dir_find(0,"test.txt",9,tempDir3);
@@ -596,7 +634,54 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         struct dirent* tempDir5 = (struct dirent*) malloc(sizeof(struct dirent));
         findRes = dir_find(0,"test.txt",0,tempDir5);
         printf("file1 (2nd time) remove: %d, find: %d\n",remRes,findRes);
+        */
 
+        /*                  TESTING get node by path                    */
+        /*
+        // add a sub directory to root
+        dir_add(*root, 1, "tmp", 4);
+        // actually create an inode for it
+        struct inode* tmpI = (struct inode*) malloc(sizeof(struct inode));
+        tmpI->ino = 1;
+        tmpI->valid = 1;
+        tmpI->size = 0;
+        tmpI->type = 1;
+        tmpI->link = 1;
+        // loop through all values and set them to -1
+        int counter = 0;
+        for(counter = 0; counter < (sizeof(tmpI->direct_ptr) / sizeof(int)); counter++){
+            (tmpI->direct_ptr)[counter] = -1;
+        }   
+        for(counter = 0; counter < (sizeof(tmpI->indirect_ptr) / sizeof(int)); counter++){
+            (tmpI->indirect_ptr)[counter] = -1;
+        }
+        // write the tmp inode to disk
+        writei(1, tmpI);
+
+        // add test.txt to tmp
+        dir_add(*tmpI, 2, "test.txt",9);
+        // create an inode for test.txt
+        struct inode* testI = (struct inode*) malloc(sizeof(struct inode));
+        testI->ino = 2;
+        testI->valid = 1;
+        testI->size = 0;
+        testI->type = 0;
+        testI->link = 1;
+        // loop through all values and set them to -1
+        counter = 0;
+        for(counter = 0; counter < (sizeof(testI->direct_ptr) / sizeof(int)); counter++){
+            (testI->direct_ptr)[counter] = -1;
+        }   
+        for(counter = 0; counter < (sizeof(testI->indirect_ptr) / sizeof(int)); counter++){
+            (testI->indirect_ptr)[counter] = -1;
+        }
+        // write the test inode to disk
+        writei(2, testI);
+        */
+        // testing get node by path
+        struct inode* resI = (struct inode*) malloc(sizeof(struct inode));
+        int getRes = get_node_by_path("/tmp/test.txt",0,resI);
+        printf("get: %d, resI's ino: %d\n",getRes, resI->ino);
     }
 
 	return NULL;
