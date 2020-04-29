@@ -567,19 +567,20 @@ static void *tfs_init(struct fuse_conn_info *conn) {
     }else{
         // Step 1b: If disk file is found, just initialize in-memory data structures
         // and read superblock from disk
-        puts("NOT FIRST TIME WE RUN IT");
-        char buffer[BLOCK_SIZE];
+        //puts("NOT FIRST TIME WE RUN IT");
+        char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
         bio_read(0,(void*) buffer);
         sb = (struct superblock*) buffer;
         // test if the super block data saved
-        printf("max_inum: %u, max_dnum: %u\n",(unsigned int) sb->max_inum,(unsigned int) sb->max_dnum);
+        //printf("max_inum: %u, max_dnum: %u\n",(unsigned int) sb->max_inum,(unsigned int) sb->max_dnum);
 
 
         /*                  TESTING READI                   */
+        /*
         struct inode* root = (struct inode*) malloc(sizeof(struct inode));
         readi(0,root);
         printf("root: ino: %d, size: %d, type: %d, valid: %d\n",root->ino,root->size,root->type,root->valid);
-            
+        */  
 
         /*                  TESTING inode and data bitmap gets                  */
         /*
@@ -664,7 +665,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         struct inode* testI = (struct inode*) malloc(sizeof(struct inode));
         testI->ino = 2;
         testI->valid = 1;
-        testI->size = 0;
+        testI->size = 1000;
         testI->type = 0;
         testI->link = 1;
         // loop through all values and set them to -1
@@ -678,10 +679,20 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         // write the test inode to disk
         writei(2, testI);
         */
+
+        /*                  Testing remove again so I can test get node                 */
+        /*
+        struct inode* tmpI = (struct inode*) malloc(sizeof(struct inode));
+        readi(1,tmpI);
+        dir_remove(*tmpI,"test.txt",9);
+        */
+
         // testing get node by path
+        /*
         struct inode* resI = (struct inode*) malloc(sizeof(struct inode));
         int getRes = get_node_by_path("/tmp/test.txt",0,resI);
-        printf("get: %d, resI's ino: %d\n",getRes, resI->ino);
+        printf("get: %d, resI's ino: %d, resI's size: %d\n",getRes, resI->ino, resI->size);
+        */
     }
 
 	return NULL;
@@ -690,22 +701,54 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 static void tfs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
+    // de allocate the super block.
+    free(sb);
+    // are there more?                                              *******
 
 	// Step 2: Close diskfile
-
+    dev_close();
 }
 
 static int tfs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 1: call get_node_by_path() to get inode from path
+    struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    // assume all paths start at root?                                            *****
+    // also have to check if it even finds it
+    int getRes = 0;
+    getRes = get_node_by_path(path, 0, inode);
+    if( getRes == -1 ){
+        // error
+        printf("Could not resolve path\n");
+        return -ENOENT;
+    }
 
 	// Step 2: fill attribute of file into stbuf from inode
-		
-        
+    // memset the stat
+    memset(stbuf,0,sizeof(struct stat));
+    
+    // Are these set correctly?                                     ******    
+    stbuf->st_nlink  = inode->link;
+	time(&(stbuf->st_mtime));
+    stbuf->st_uid = getuid();
+    stbuf->st_gid = getgid();
+    stbuf->st_ino = inode->ino;
+    stbuf->st_size = inode->size;
+    // check if it is root
+    if( strcmp(path, "/") == 0){
         stbuf->st_mode   = S_IFDIR | 0755;
-		stbuf->st_nlink  = 2;
-		time(&stbuf->st_mtime);
-        
+    }else{
+        // check if it is a file or directory
+        if( inode->type == 0 ){
+            // file
+            stbuf->st_mode   = S_IFREG | 0777;
+        }else{
+            // directory
+            stbuf->st_mode   = S_IFDIR | 0777;
+        }
+    
+    }
+    
 /*
   
     int retstat;
