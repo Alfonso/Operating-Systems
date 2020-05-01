@@ -96,6 +96,10 @@ int get_avail_blkno() {
 	        // Step 3: Update data block bitmap and write to disk 
             set_bitmap(dbit,counter); 
             bio_write(2,(void*) dbit);
+            // memset the data block
+            char* newBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            memset(newBuff, 0, BLOCK_SIZE);
+            bio_write( counter + sb->d_start_blk, (void*) newBuff );
             // return the block number
             return counter;
         }
@@ -188,6 +192,8 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
+    puts("I AM IN DIR FIND!!!!!!!!!!!!!!!!!!");
+
     // Step 1: Call readi() to get the inode using ino (inode number of current directory)
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
     readi(ino,inode);
@@ -247,6 +253,9 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
  * -1 on failure
 */
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
+
+    printf("I AM IN DIR ADD AND THE FILE I AM ADDING IS: %s\n",fname);
+
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	// Step 2: Check if fname (directory name) is already used in other entries
@@ -448,6 +457,8 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
  * -1 on failure
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
+
+    puts("I AM IN GET NODE BY PATH!!!!!!!!!!!!!!");
 	
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
@@ -531,7 +542,7 @@ int tfs_mkfs() {
     rootI->valid = 1;
     rootI->size = 0;
     rootI->type = 1;
-    rootI->link = 0;
+    rootI->link = 1;
     // loop through all values and set them to -1
     int counter = 0;
     for(counter = 0; counter < (sizeof(rootI->direct_ptr) / sizeof(int)); counter++){
@@ -540,9 +551,16 @@ int tfs_mkfs() {
     for(counter = 0; counter < (sizeof(rootI->indirect_ptr) / sizeof(int)); counter++){
         (rootI->indirect_ptr)[counter] = -1;
     }
-    //rootI->vstat =                                                        ****???????
-    /*                  IS THIS RIGHT?                  */
+    // set the vstat values
+    (rootI->vstat).st_ino = 0;
+    (rootI->vstat).st_mode = S_IFDIR | 0755;
+    (rootI->vstat).st_uid = getuid();
+    (rootI->vstat).st_gid = getgid();
+    (rootI->vstat).st_nlink = 1;
+    (rootI->vstat).st_size = 0;
+	time( &((rootI->vstat).st_atime) );
     
+    /*                  IS THIS RIGHT?                  */
     //write them all to the file
     // write ibit to file
     bio_write(1,(void*) ibit);
@@ -703,13 +721,14 @@ static void tfs_destroy(void *userdata) {
 	// Step 1: De-allocate in-memory data structures
     // de allocate the super block.
     free(sb);
-    // are there more?                                              *******
 
 	// Step 2: Close diskfile
     dev_close();
 }
 
 static int tfs_getattr(const char *path, struct stat *stbuf) {
+
+    puts("I AM IN GETATTR!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: call get_node_by_path() to get inode from path
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
@@ -722,131 +741,163 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
         printf("Could not resolve path\n");
         return -ENOENT;
     }
-
+    
 	// Step 2: fill attribute of file into stbuf from inode
     // memset the stat
     memset(stbuf,0,sizeof(struct stat));
-    
-    // Are these set correctly?                                     ******    
+    // set everything
     stbuf->st_nlink  = inode->link;
-	time(&(stbuf->st_mtime));
-    stbuf->st_uid = getuid();
-    stbuf->st_gid = getgid();
+    stbuf->st_atime = (inode->vstat).st_atime;
+    stbuf->st_mtime = (inode->vstat).st_mtime;
+    stbuf->st_uid = (inode->vstat).st_uid;
+    stbuf->st_gid = (inode->vstat).st_gid;
     stbuf->st_ino = inode->ino;
     stbuf->st_size = inode->size;
-    // check if it is root
-    if( strcmp(path, "/") == 0){
-        stbuf->st_mode   = S_IFDIR | 0755;
-    }else{
-        // check if it is a file or directory
-        if( inode->type == 0 ){
-            // file
-            stbuf->st_mode   = S_IFREG | 0777;
-        }else{
-            // directory
-            stbuf->st_mode   = S_IFDIR | 0777;
-        }
-    
-    }
-    
-/*
-  
-    int retstat;
-    char fpath[PATH_MAX];
-    tfs_fullpath(fpath,path);
-    retstat = lstat(fpath,stbuf);
-    printf("getattr(): resttat: %d\n",retstat);
-    if(retstat == 0)
-        return 0;
-    printf("getattr(): error is %s\n",strerror(errno));
-    retstat = -1*errno;
-*/
-  	return 0;
+    stbuf->st_mode = (inode->vstat).st_mode;
+    return 0;
 }
 
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
+    struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only dealing with absolute paths we can just pass ino 0
+    int getRes = get_node_by_path(path, 0, inode);
+
+    puts("I AM IN OPENDIR!!!!!!!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 2: If not find, return -1
+    if( getRes == -1 ){
+        puts("Dir does not exist");
+        return -1;
+    }
 
+    // update atime
+    time( &((inode->vstat).st_atime) );
 
-
-
-/*
-    DIR* dp;
-    int retstat = 0;
-    char fpath[PATH_MAX];
-
-    tfs_fullpath(fpath,path);
-    dp = opendir(fpath);
-    if(dp == NULL)
-        retstat = -errno;
-
-    fi->fh = (intptr_t) dp;
-*/
     return 0;
 }
 
 static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
 
-	// Step 1: Call get_node_by_path() to get inode from path
+	puts("I AM IN READDIR!!!!!!!!!!!!!");
+    
+    // Step 1: Call get_node_by_path() to get inode from path
+    struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only dealing with absolute paths we can just pass ino 0
+    int getRes = get_node_by_path( path, 0, inode );
+    if( getRes == -1 ){
+        puts("Dir does not exist");
+        return -ENOENT;
+    }
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
+    int directPtrIdx = 0;
+    int blockIdx = 0;
+    // loop through all of the valid blocks in the inode
+    for( directPtrIdx = 0; directPtrIdx < (sizeof(inode->direct_ptr)/sizeof(int)); directPtrIdx++ ){
+        // if it actually points to something
+        if( (inode->direct_ptr)[directPtrIdx] >= 0 ){
+            // need a buffer to put the block of data we are reading
+            char* dataBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            int blockNum = (inode->direct_ptr)[directPtrIdx] + sb->d_start_blk;
+            bio_read( blockNum, (void*) dataBuffer );
 
+            // loop through all of the dirents inside this block
+            for( blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++){
+                // we want to only copy the bytes of a dirent into this buffer
+                char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                int direntIdx = 0;
+                // copy byte by byte to our dirent buffer
+                for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                    dbuff[direntIdx] = dataBuffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                }
 
-/*
-    int retstat = 0;
-    DIR* dp;
-    struct dirent* de;
-
-    dp = (DIR*) (uintptr_t) fi->fh;
-
-    // set errno to 0?
-    errno = 0;
-    de = readdir(dp);
-    if(de == 0){
-        retstat = -errno;
-        return retstat;
-    }
-    
-    do{
-        if(filler(buffer,de->d_name,NULL,0) != 0){
-            return -ENOMEM;
+                // check if the dirent is valid
+                if( ((struct dirent*) dbuff)->valid == 1 ){
+                    // call filler on this because it is valid
+                    // make sure filler works
+                    if( filler(buffer, ((struct dirent*) dbuff)->name, NULL, 0) != 0 ){
+                        // eror with filler throuhg erorr
+                        puts("Error with filler");
+                        return -ENOMEM;
+                    }
+                }       
+            }
         }
-    }while( (de = readdir(dp)) != NULL);
-*/
+    }
+    // success
 	return 0;
 }
 
 
 static int tfs_mkdir(const char *path, mode_t mode) {
+    // create copies of the path
+    char* dirc = strdup(path);
+    char* basec = strdup(path);
+
+    puts("I AM IN MKDIR!!!!!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+    char* dirName = dirname(dirc);
+    char* target = basename(basec);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
+    struct inode* dirInode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only using absolute paths we can pass it roots inode number
+    int getRes = get_node_by_path(dirName, 0, dirInode);
+    if( getRes == -1 ){
+        puts("Directory does not exist");
+        return -ENOENT; 
+    }
 
 	// Step 3: Call get_avail_ino() to get an available inode number
+    int newIno = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
+    int addRes = dir_add( *dirInode, newIno, target, strlen(target) );
+    if( addRes == -1 ){
+        printf("Error adding!!!!!!!!!!!!!!!!");
+        // could be because file already exists or do data
+        // return -ENOMEM;                                                          *****
+        return -EEXIST;
+    }
 
 	// Step 5: Update inode for target directory
+    struct inode* targetInode = (struct inode*) malloc(sizeof(struct inode));
+    targetInode->ino = newIno;
+    targetInode->valid = 1;
+    targetInode->size = 0;
+    targetInode->type = 1;
+    targetInode->link = 1;
+    /* loop through all values and set them to -1 */
+    int counter = 0;
+    for(counter = 0; counter < (sizeof(targetInode->direct_ptr) / sizeof(int)); counter++){
+        (targetInode->direct_ptr)[counter] = -1;
+    }
+    for(counter = 0; counter < (sizeof(targetInode->indirect_ptr) / sizeof(int)); counter++){
+        (targetInode->indirect_ptr)[counter] = -1;
+    }
+    /* set the vstat values */
+    (targetInode->vstat).st_ino = newIno;
+    //(targetInode->vstat).st_mode = S_IFDIR | 0755;
+    (targetInode->vstat).st_mode = S_IFDIR | mode;
+    (targetInode->vstat).st_uid = getuid();
+    (targetInode->vstat).st_gid = getgid();
+    (targetInode->vstat).st_nlink = 1;
+    (targetInode->vstat).st_size = 0;
+    time( &((targetInode->vstat).st_atime) );
 
 	// Step 6: Call writei() to write inode to disk
+    writei(newIno, targetInode);
 
 
-/*
-    char fpath[PATH_MAX];
-    tfs_fullpath(fpath,path);
-    printf("Trying to makedir: %s\n",fpath);
-
-	//mkdir(fpath,S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-    mkdir(fpath,mode);
-*/
 	return 0;
 }
 
 static int tfs_rmdir(const char *path) {
+
+    puts("I AM IN RMDIR!!!!!!!!!!!!!!!");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
 
@@ -879,6 +930,8 @@ static int tfs_releasedir(const char *path, struct fuse_file_info *fi) {
 
 static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 
+    puts("I AM IN CREAT!!!!!!!!!!!!!!!!!!");
+
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
@@ -892,6 +945,7 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 	// Step 6: Call writei() to write inode to disk
 
 
+    // update atime
 
 
 /*
@@ -920,14 +974,19 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 
 static int tfs_open(const char *path, struct fuse_file_info *fi) {
 
+    puts("I AM IN OPEN!!!!!!!!!!!!!!!!!!!");
+
 	// Step 1: Call get_node_by_path() to get inode from path
 
 	// Step 2: If not find, return -1
 
+    // update atime
 	return 0;
 }
 
 static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+
+    puts("I AM IN READ!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: You could call get_node_by_path() to get inode from path
 
@@ -940,7 +999,10 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 }
 
 static int tfs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-	// Step 1: You could call get_node_by_path() to get inode from path
+	
+    puts("I AM IN WRITE!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    
+    // Step 1: You could call get_node_by_path() to get inode from path
 
 	// Step 2: Based on size and offset, read its data blocks from disk
 
@@ -949,10 +1011,15 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	// Step 4: Update the inode info and write it to disk
 
 	// Note: this function should return the amount of bytes you write to disk
-	return size;
+	
+    // update mtime
+
+    return size;
 }
 
 static int tfs_unlink(const char *path) {
+
+    puts("I AM IN UNLINK!!!!!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
 
