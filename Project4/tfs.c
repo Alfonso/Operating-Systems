@@ -585,132 +585,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
     }else{
         // Step 1b: If disk file is found, just initialize in-memory data structures
         // and read superblock from disk
-        //puts("NOT FIRST TIME WE RUN IT");
         char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
         bio_read(0,(void*) buffer);
         sb = (struct superblock*) buffer;
-        // test if the super block data saved
-        //printf("max_inum: %u, max_dnum: %u\n",(unsigned int) sb->max_inum,(unsigned int) sb->max_dnum);
-
-
-        /*                  TESTING READI                   */
-        /*
-        struct inode* root = (struct inode*) malloc(sizeof(struct inode));
-        readi(0,root);
-        printf("root: ino: %d, size: %d, type: %d, valid: %d\n",root->ino,root->size,root->type,root->valid);
-        */  
-
-        /*                  TESTING inode and data bitmap gets                  */
-        /*
-        int test = get_avail_ino();
-        printf("test: %d\n",test);
-        test = get_avail_ino();
-        printf("test: %d\n",test);
-        int blktest = get_avail_blkno();
-        printf("blktest: %d\n",blktest);
-        blktest = get_avail_blkno();
-        printf("blktest: %d\n",blktest);
-        */
-
-
-        /*                  TESTING dir add and dir find                    */
-        /*
-        int addRes = dir_add(*root,1,"test.txt",9);
-        struct dirent* tempDir = (struct dirent*) malloc(sizeof(struct dirent));
-        int findRes = dir_find(0,"test.txt",9,tempDir);
-        printf("add: %d, find: %d\n",addRes,findRes);
-
-        // need to grab the most recent version of root
-        readi(0,root);
-        // print all of the ptrs that are in root
-        int counter = 0;
-        printf("PTRS: ");
-        for(counter = 0; counter < 16; counter++){
-            printf("%d",(root->direct_ptr)[counter]);
-        }
-        puts("");
-        
-        addRes = dir_add(*root,2,"test2.txt",10);
-        struct dirent* tempDir2 = (struct dirent*) malloc(sizeof(struct dirent));
-        findRes = dir_find(0,"test2.txt",10,tempDir2);
-        printf("add2: %d, find2: %d\n",addRes,findRes);
-        */
-
-        /*                  TESTING dir remove                  */
-        /*
-        int remRes = dir_remove(*root, "test.txt",9);
-        struct dirent* tempDir3 = (struct dirent*) malloc(sizeof(struct dirent));
-        findRes = dir_find(0,"test.txt",9,tempDir3);
-        printf("file1 remove: %d, find: %d\n",remRes,findRes);
-        
-
-        remRes = dir_remove(*root, "test2.txt",10);
-        struct dirent* tempDir4 = (struct dirent*) malloc(sizeof(struct dirent));
-        findRes = dir_find(0,"test2.txt",10,tempDir4);
-        printf("file2 remove: %d, find: %d\n",remRes,findRes);
-
-        remRes = dir_remove(*root,"test.txt",9);
-        struct dirent* tempDir5 = (struct dirent*) malloc(sizeof(struct dirent));
-        findRes = dir_find(0,"test.txt",0,tempDir5);
-        printf("file1 (2nd time) remove: %d, find: %d\n",remRes,findRes);
-        */
-
-        /*                  TESTING get node by path                    */
-        /*
-        // add a sub directory to root
-        dir_add(*root, 1, "tmp", 4);
-        // actually create an inode for it
-        struct inode* tmpI = (struct inode*) malloc(sizeof(struct inode));
-        tmpI->ino = 1;
-        tmpI->valid = 1;
-        tmpI->size = 0;
-        tmpI->type = 1;
-        tmpI->link = 1;
-        // loop through all values and set them to -1
-        int counter = 0;
-        for(counter = 0; counter < (sizeof(tmpI->direct_ptr) / sizeof(int)); counter++){
-            (tmpI->direct_ptr)[counter] = -1;
-        }   
-        for(counter = 0; counter < (sizeof(tmpI->indirect_ptr) / sizeof(int)); counter++){
-            (tmpI->indirect_ptr)[counter] = -1;
-        }
-        // write the tmp inode to disk
-        writei(1, tmpI);
-
-        // add test.txt to tmp
-        dir_add(*tmpI, 2, "test.txt",9);
-        // create an inode for test.txt
-        struct inode* testI = (struct inode*) malloc(sizeof(struct inode));
-        testI->ino = 2;
-        testI->valid = 1;
-        testI->size = 1000;
-        testI->type = 0;
-        testI->link = 1;
-        // loop through all values and set them to -1
-        counter = 0;
-        for(counter = 0; counter < (sizeof(testI->direct_ptr) / sizeof(int)); counter++){
-            (testI->direct_ptr)[counter] = -1;
-        }   
-        for(counter = 0; counter < (sizeof(testI->indirect_ptr) / sizeof(int)); counter++){
-            (testI->indirect_ptr)[counter] = -1;
-        }
-        // write the test inode to disk
-        writei(2, testI);
-        */
-
-        /*                  Testing remove again so I can test get node                 */
-        /*
-        struct inode* tmpI = (struct inode*) malloc(sizeof(struct inode));
-        readi(1,tmpI);
-        dir_remove(*tmpI,"test.txt",9);
-        */
-
-        // testing get node by path
-        /*
-        struct inode* resI = (struct inode*) malloc(sizeof(struct inode));
-        int getRes = get_node_by_path("/tmp/test.txt",0,resI);
-        printf("get: %d, resI's ino: %d, resI's size: %d\n",getRes, resI->ino, resI->size);
-        */
     }
 
 	return NULL;
@@ -899,26 +776,91 @@ static int tfs_rmdir(const char *path) {
 
     puts("I AM IN RMDIR!!!!!!!!!!!!!!!");
 
+    // Step 0: get the bitmaps
+    // get inode bitmap
+    char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    char* ibuff = (char*) malloc( sizeof(char) * (MAX_INUM / 8));
+    bio_read(1, (void*) buffer);
+    // copy first bytes to ibuff
+    int counter = 0;
+    for(counter = 0; counter < MAX_INUM / 8; counter++){
+        ibuff[counter] = buffer[counter];
+    }
+    // cast bitmap
+    bitmap_t ibit = (bitmap_t) ibuff;
+    
+    // reset buffer
+    memset(buffer, 0, BLOCK_SIZE);
+    // get data block bitmap
+    char* dbuff = (char*) malloc(sizeof(char) * (MAX_DNUM / 8));
+    bio_read(2,(void*) buffer);
+    // copy first bytes to dbuff
+    for(counter = 0; counter < MAX_DNUM / 8; counter++){
+        dbuff[counter] = buffer[counter];
+    }
+    // cast bitmap
+    bitmap_t dbit = (bitmap_t) dbuff;
+    
+
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+    // create copies of the path
+    char* fpath = strdup(path);
+    char* dirc = strdup(path);
+    char* basec = strdup(path);
+    char* dirName = dirname(dirc);
+    char* target = basename(basec);
 
 	// Step 2: Call get_node_by_path() to get inode of target directory
+    struct inode* targetInode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only using absolute paths we can pass it roots inode number
+    int getRes = get_node_by_path(fpath, 0, targetInode);
+    if( getRes == -1 ){
+        puts("Directory does not exist");
+        return -ENOENT; 
+    }
 
 	// Step 3: Clear data block bitmap of target directory
+    // have to loop through all f the direct pointers and reclaim them in the bitmap
+    int directPtrIdx = 0;
+    for( directPtrIdx = 0; directPtrIdx < (sizeof(targetInode->direct_ptr)/sizeof(int)); directPtrIdx++){
+        // check if whether or not the direct pointer is set
+        if( (targetInode->direct_ptr)[directPtrIdx] >= 0 ){
+            // reclaim the data block in bitmap
+            unset_bitmap( dbit, (targetInode->direct_ptr)[directPtrIdx] );
+            // set val to -1 bc we reclaimed it
+            (targetInode->direct_ptr)[directPtrIdx] = -1;        
+        }
+    }
+    // write the bitmap back to disk
+    bio_write(2,(void*) dbit);
+
 
 	// Step 4: Clear inode bitmap and its data block
+    unset_bitmap(ibit, targetInode->ino);
+    // write the bitmap back to disk
+    bio_write(1,(void*) ibit);
+    /*                  What does it mean by its data block?                    */
+    /*          Do we have to update the target inode and write it to the block in inode table?        */
+
 
 	// Step 5: Call get_node_by_path() to get inode of parent directory
+    struct inode* dirInode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only using absolute paths we can pass it roots inode number
+    getRes = get_node_by_path(dirName, 0, dirInode);
+    if( getRes == -1){
+        puts("Directory does not exist");
+        return -ENOENT;
+    }
 
 	// Step 6: Call dir_remove() to remove directory entry of target directory in its parent directory
+    int removeRes = dir_remove( *dirInode, target, strlen(target) );
+    if( removeRes == -1 ){
+        puts("Unable to remove");
+        return -ENOENT;
+    }
+    // write the update inode?
+    writei(dirInode->ino, dirInode);
 
-
-
-/*
-    char fpath[PATH_MAX];
-    tfs_fullpath(fpath,path);
-    printf("Trying to rmdir: %s\n",fpath);
-    rmdir(fpath);
-*/
 	return 0;
 }
 
