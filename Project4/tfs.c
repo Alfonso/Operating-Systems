@@ -100,6 +100,7 @@ int get_avail_blkno() {
             char* newBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
             memset(newBuff, 0, BLOCK_SIZE);
             bio_write( counter + sb->d_start_blk, (void*) newBuff );
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!THE FREE DATA BLOCK WE ARE ASSIGNING IS: %d\n",counter);
             // return the block number
             return counter;
         }
@@ -153,6 +154,13 @@ int readi(uint16_t ino, struct inode *inode) {
 }
 
 int writei(uint16_t ino, struct inode *inode) {
+    int counter2 = 0;
+    printf("IN WRITEI for inode: %d\n",ino);
+    for(counter2 = 0; counter2 < 16; counter2++){
+        printf("%d ",(inode->direct_ptr)[counter2]);
+    }
+    puts("");
+
 
 	// Step 1: Get the block number where this inode resides on disk
     // in relation to the inode table
@@ -309,6 +317,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                     }
                     // write this block back to disk
                     bio_write( blockNum, (void*) buffer);
+
+                    printf(" WE WROTE THE DIRENT IN BLOCK NUMBER: %d\n",(dir_inode.direct_ptr)[directPtrIdx]);
+
                     // we are done with this so break out
                     break;
                 }
@@ -335,6 +346,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
             puts("No more space in directory");
             return -1;
         }
+
+        puts("WE HAVE NO MORE ROOM INSIDE ALL ALLOCATED BLOCKS> THUS WE NEED NAOTHER BLOCK>>>>>>>>");
 
         // we have the first free ptr idx that we can allocate a new block for
         // find the next available data block (idx starting from data segment)
@@ -434,10 +447,8 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
                     // write the block buffer back to the disk
                     bio_write( blockNum, (void*) buffer);
                     
-                    // update the directory inode info?                                     *******
-                    // SOMETHING ABOUT ITS SIZE
-                    // write this directory inode back to disk
-
+                    // SOMETHING ABOUT ITS SIZE                                         ******
+                    
                     // return 0 for success
                     return 0;
                 }
@@ -819,9 +830,45 @@ static int tfs_rmdir(const char *path) {
         return -ENOENT; 
     }
 
+    // make sure that they are not trying to delete root
+    if( targetInode->ino == 0 ){
+        puts("Stop trying to delete root");
+        return -EPERM;
+    }
+
+    // check to make sure that the directory is empty
+    // if not, return -ENOTEMPTY
+    int directPtrIdx = 0;
+    for( directPtrIdx = 0; directPtrIdx < (sizeof(targetInode->direct_ptr)/sizeof(int)); directPtrIdx++){
+        // check if whether or not the direct pointer is set
+        if( (targetInode->direct_ptr)[directPtrIdx] >= 0 ){
+            // need a buffer to put the block of data we are reading
+            char* dataBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            int blockNum = (targetInode->direct_ptr)[directPtrIdx] + sb->d_start_blk;
+            bio_read( blockNum, (void*) dataBuffer );
+            int blockIdx = 0;
+            // loop through all of the dirents inside this block
+            for( blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++){
+                // we want to only copy the bytes of a dirent into this buffer
+                char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                int direntIdx = 0;
+                // copy byte by byte to our dirent buffer
+                for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                    dbuff[direntIdx] = dataBuffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                }
+
+                // check if the dirent is valid
+                if( ((struct dirent*) dbuff)->valid == 1 ){
+                    // there exists at least 1 valid dirent. WE cannot delete the directory
+                    puts("something in directory, cannot delete");
+                    return -ENOTEMPTY;
+                }
+            } 
+        }
+    }
+
 	// Step 3: Clear data block bitmap of target directory
     // have to loop through all f the direct pointers and reclaim them in the bitmap
-    int directPtrIdx = 0;
     for( directPtrIdx = 0; directPtrIdx < (sizeof(targetInode->direct_ptr)/sizeof(int)); directPtrIdx++){
         // check if whether or not the direct pointer is set
         if( (targetInode->direct_ptr)[directPtrIdx] >= 0 ){
@@ -858,6 +905,10 @@ static int tfs_rmdir(const char *path) {
         puts("Unable to remove");
         return -ENOENT;
     }
+
+    // trim the data blocks
+    trimBlocks(dirInode);
+
     // write the update inode?
     writei(dirInode->ino, dirInode);
 
@@ -872,45 +923,64 @@ static int tfs_releasedir(const char *path, struct fuse_file_info *fi) {
 
 static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 
-    puts("I AM IN CREAT!!!!!!!!!!!!!!!!!!");
+    puts("I AM IN CREATE!!!!!!!!!!!!!!!!!!");
+    // step 0: make copies of the path
+    char* dirc = strdup(path);
+    char* basec = strdup(path);
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+    char* dirName = dirname(dirc);
+    char* target = basename(basec);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
+    struct inode* dirInode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only using absolute paths we can always start with root
+    int getRes = get_node_by_path(dirName, 0, dirInode);
+    if( getRes == -1 ){
+        puts("Directory does not exist");
+        return -ENOENT;
+    }
 
 	// Step 3: Call get_avail_ino() to get an available inode number
+    int newIno = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target file to parent directory
+    int addRes = dir_add(*dirInode, newIno, target, strlen(target));
+    if( addRes == -1 ){
+        printf("error adding\n");
+        // this can either be because the file already exists, or there is no mem
+        return -EEXIST;
+    }
 
 	// Step 5: Update inode for target file
+    struct inode* targetInode = (struct inode*) malloc(sizeof(struct inode));
+    targetInode->ino = newIno;
+    targetInode->valid = 1;
+    targetInode->size = 0;
+    targetInode->type = 0; // file
+    targetInode->link = 1;
+    /* loop through all values and set them to -1 */
+    int counter = 0;
+    for(counter = 0; counter < (sizeof(targetInode->direct_ptr) / sizeof(int)); counter++){
+        (targetInode->direct_ptr)[counter] = -1;
+    }
+    for(counter = 0; counter < (sizeof(targetInode->indirect_ptr) / sizeof(int)); counter++){
+        (targetInode->indirect_ptr)[counter] = -1;
+    }
+    /* set the vstat values */
+    (targetInode->vstat).st_ino = newIno;
+    (targetInode->vstat).st_mode = S_IFREG | mode;
+    (targetInode->vstat).st_uid = getuid();
+    (targetInode->vstat).st_gid = getgid();
+    (targetInode->vstat).st_nlink = 1;
+    (targetInode->vstat).st_size = 0;
+    time( &((targetInode->vstat).st_atime) );
 
 	// Step 6: Call writei() to write inode to disk
+    writei(newIno, targetInode);
 
+    // Do i have to update dirInode atime
 
-    // update atime
-
-
-/*
-    int retstat = 0;
-    char fpath[PATH_MAX];
-    tfs_fullpath(fpath,path);
-    
-    if(S_ISREG(mode)){
-        open(fpath, O_CREAT | O_EXCL | O_WRONLY, mode);
-        retstat = -errno;
-    }else
-        if(S_ISFIFO(mode)){
-            if(retstat >= 0){
-                close(retstat);
-                retstat = -errno;
-            }
-        }else{
-            if(S_ISFIFO(mode)){
-                mkfifo(fpath,mode);
-                retstat = -errno;
-            }
-        }
-*/
 	return 0;
 }
 
@@ -919,11 +989,19 @@ static int tfs_open(const char *path, struct fuse_file_info *fi) {
     puts("I AM IN OPEN!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: Call get_node_by_path() to get inode from path
-
+	struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only dealing with absolute paths we can give it roots ino
+    int getRes = get_node_by_path(path, 0, inode);
 	// Step 2: If not find, return -1
-
+    if( getRes == -1 ){
+        puts("File does not exist");
+        return -1;
+    }
+	
     // update atime
-	return 0;
+	time( &((inode->vstat).st_atime));
+
+    return 0;
 }
 
 static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
@@ -960,22 +1038,96 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 }
 
 static int tfs_unlink(const char *path) {
+    // function is very similar to rmdir
 
     puts("I AM IN UNLINK!!!!!!!!!!!!!!!!!!!!!!!!");
 
-	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+    // step 0: get the bitmaps
+    // get inode bitmap
+    char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    char* ibuff = (char*) malloc( sizeof(char) * (MAX_INUM / 8));
+    bio_read(1, (void*) buffer);
+    // copy first  bytes to ibuf
+    int counter = 0;
+    for(counter = 0; counter < MAX_INUM / 8; counter++){
+        ibuff[counter] = buffer[counter];
+    }
+    // cast bitmap
+    bitmap_t ibit = (bitmap_t) ibuff;
 
+    // reset buffer
+    memset(buffer, 0, BLOCK_SIZE);
+    // get data block bitmap
+    char* dbuff = (char*) malloc(sizeof(char) * (MAX_DNUM / 8));
+    bio_read(2,(void*) buffer);
+    // copy first bytes to dbuff
+    for(counter = 0; counter < MAX_DNUM / 8; counter++){
+        dbuff[counter] = buffer[counter];
+    }
+    // cast bitmap
+    bitmap_t dbit = (bitmap_t) dbuff;
+
+	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+    // create copies of the path
+    char* fpath = strdup(path);
+    char* dirc = strdup(path);
+    char* basec = strdup(path);
+    char* dirName = dirname(dirc);
+    char* target = basename(basec);
+    
 	// Step 2: Call get_node_by_path() to get inode of target file
+    struct inode* targetInode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only using absolute paths we can psas its roots ino
+    int getRes = get_node_by_path(fpath, 0, targetInode);
+    if( getRes == -1 ){
+        puts("File does not exist");
+        return -ENOENT; 
+    }
 
 	// Step 3: Clear data block bitmap of target file
+    // have to loop through all f the direct pointers and reclaim them in the bitmap
+    int directPtrIdx = 0;
+    for( directPtrIdx = 0; directPtrIdx < (sizeof(targetInode->direct_ptr)/sizeof(int)); directPtrIdx++){
+        // check if whether or not the direct pointer is set
+        if( (targetInode->direct_ptr)[directPtrIdx] >= 0 ){
+            // reclaim the data block in bitmap
+            unset_bitmap( dbit, (targetInode->direct_ptr)[directPtrIdx] );
+            // set val to -1 bc we reclaimed it
+            (targetInode->direct_ptr)[directPtrIdx] = -1;        
+        }
+    }
+    // write the bitmap back
+    bio_write(2,(void*)dbit);
 
 	// Step 4: Clear inode bitmap and its data block
+    unset_bitmap(ibit, targetInode->ino);
+    // write the bitmap back to disk
+    bio_write(1,(void*) ibit);
 
 	// Step 5: Call get_node_by_path() to get inode of parent directory
+    struct inode* dirInode = (struct inode*) malloc(sizeof(struct inode));
+    // since we are only using absolute paths we can pass it roots inode number
+    getRes = get_node_by_path(dirName, 0, dirInode);
+    if( getRes == -1){
+        puts("Directory does not exist");
+        return -ENOENT;
+    }
 
 	// Step 6: Call dir_remove() to remove directory entry of target file in its parent directory
+    int removeRes = dir_remove( *dirInode, target, strlen(target) );
+    if( removeRes == -1 ){
+        puts("Unable to remove");
+        return -ENOENT;
+    }
 
-	return 0;
+    // trim blocks
+    trimBlocks(dirInode);
+
+    // write the updated dir inode?
+    writei(dirInode->ino, dirInode);
+	
+
+    return 0;
 }
 
 static int tfs_truncate(const char *path, off_t size) {
@@ -1042,3 +1194,77 @@ int main(int argc, char *argv[]) {
 	return fuse_stat;
 }
 
+
+// checks if dirents are empty in a block
+// if they are, reclaim that block
+int trimBlocks(struct inode* inode){
+
+    // get the data block bitmap
+    char* dataBlockBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    char* dbuff = (char*) malloc(sizeof(char)*(MAX_DNUM / 8));
+    bio_read(2,(void*)dataBlockBuffer);
+    int counter = 0;
+    // copy the first bytes to dbuff
+    for(counter = 0; counter < MAX_DNUM / 8; counter++){
+        dbuff[counter] = dataBlockBuffer[counter];
+    }
+    // cast bitmap
+    bitmap_t dbit = (bitmap_t) dbuff;
+    
+    // flag to see if we can reclaim this block
+    int reclaimBlock = 1;
+
+    // retval
+    int reclaimed = -1;
+
+    // loop throguh all of the blocks of inode
+    int directPtrIdx = 0;
+    for( directPtrIdx = 0; directPtrIdx < (sizeof(inode->direct_ptr)/sizeof(int)); directPtrIdx++){
+        // check if the ptr actually points to something
+        if( (inode->direct_ptr)[directPtrIdx] >= 0 ){
+
+            // copy the whole block over
+            char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+            int blockNum = (inode->direct_ptr)[directPtrIdx] + sb->d_start_blk;
+            bio_read( blockNum, (void*) buffer );
+            
+            // it does, now loop through all of its dirents
+            int blockIdx = 0;
+            for( blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++ ){
+                // we want to copy only the bytes of the current dirent into this buff
+                char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                int direntIdx = 0;
+                // copy byte by byte to our dirent buffer
+                for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                    dbuff[direntIdx] = buffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                }
+                // check if this dirent is valid
+                if( ((struct dirent*) dbuff)->valid == 1 ){
+                    // it is valid so we cant take back this block
+                    reclaimBlock = 0;
+                }
+    
+            }
+
+            // after going through all of the dirents, we check if we can reclaim
+            // this block
+            if( reclaimBlock == 1){
+                // unset the bitmap
+                unset_bitmap(dbit, (inode->direct_ptr)[directPtrIdx]);
+                // reset it to -1 so we can use this ptr if need be
+                (inode->direct_ptr)[directPtrIdx] = -1;
+                // write the bitmap back
+                bio_write(2,(void*)dbit);
+                // set the value back to -1
+                (inode->direct_ptr)[directPtrIdx] = -1;
+                reclaimed = 0;
+            }
+            // set it back to 1 to check next block
+            reclaimBlock = 1;
+
+        }
+    }
+
+    return reclaimed;
+    
+}
