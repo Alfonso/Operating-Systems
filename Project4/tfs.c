@@ -202,8 +202,6 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
-    puts("I AM IN DIR FIND!!!!!!!!!!!!!!!!!!");
-
     // Step 1: Call readi() to get the inode using ino (inode number of current directory)
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
     readi(ino,inode);
@@ -263,9 +261,6 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
  * -1 on failure
 */
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
-
-    printf("I AM IN DIR ADD AND THE FILE I AM ADDING IS: %s\n",fname);
-
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	// Step 2: Check if fname (directory name) is already used in other entries
@@ -473,8 +468,6 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
  * -1 on failure
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
-
-    puts("I AM IN GET NODE BY PATH!!!!!!!!!!!!!!");
 	
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
@@ -621,8 +614,6 @@ static void tfs_destroy(void *userdata) {
 
 static int tfs_getattr(const char *path, struct stat *stbuf) {
 
-    puts("I AM IN GETATTR!!!!!!!!!!!!!!!!!!");
-
 	// Step 1: call get_node_by_path() to get inode from path
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
     // assume all paths start at root?                                            *****
@@ -657,8 +648,6 @@ static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
     // since we are only dealing with absolute paths we can just pass ino 0
     int getRes = get_node_by_path(path, 0, inode);
 
-    puts("I AM IN OPENDIR!!!!!!!!!!!!!!!!!!!!!!!!!!");
-
 	// Step 2: If not find, return -1
     if( getRes == -1 ){
         puts("Dir does not exist");
@@ -672,8 +661,6 @@ static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-
-	puts("I AM IN READDIR!!!!!!!!!!!!!");
     
     // Step 1: Call get_node_by_path() to get inode from path
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
@@ -728,8 +715,6 @@ static int tfs_mkdir(const char *path, mode_t mode) {
     // create copies of the path
     char* dirc = strdup(path);
     char* basec = strdup(path);
-
-    puts("I AM IN MKDIR!!!!!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
     char* dirName = dirname(dirc);
@@ -790,8 +775,6 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 }
 
 static int tfs_rmdir(const char *path) {
-
-    puts("I AM IN RMDIR!!!!!!!!!!!!!!!");
 
     // Step 0: get the bitmaps
     // get inode bitmap
@@ -928,8 +911,7 @@ static int tfs_releasedir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
-
-    puts("I AM IN CREATE!!!!!!!!!!!!!!!!!!");
+    
     // step 0: make copies of the path
     char* dirc = strdup(path);
     char* basec = strdup(path);
@@ -993,8 +975,6 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 
 static int tfs_open(const char *path, struct fuse_file_info *fi) {
 
-    puts("I AM IN OPEN!!!!!!!!!!!!!!!!!!!");
-
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
     // since we are only dealing with absolute paths we can give it roots ino
@@ -1012,8 +992,6 @@ static int tfs_open(const char *path, struct fuse_file_info *fi) {
 }
 
 static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-
-    puts("I AM IN READ!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: You could call get_node_by_path() to get inode from path
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
@@ -1057,15 +1035,13 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
         
     }
     
-    printf("THE AMOUNT I READ IS: %d out of %d\n",amountRead,size);
+    //printf("THE AMOUNT I READ IS: %d out of %d\n",amountRead,size);
 
 	// Note: this function should return the amount of bytes you copied to buffer
 	return amountRead;
 }
 
 static int tfs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-	
-    printf("I AM IN WRITE!!!!!!!!!!!!!!!!!!!!!!!!!!! offset is: %d size is: %d\n",offset,size);
 
     // Step 1: You could call get_node_by_path() to get inode from path
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
@@ -1086,7 +1062,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
     
     // calculate how many blocks we already have??
     int fileBlocks = inode->size / BLOCK_SIZE;
-    printf(" TOTAL BLOCKS IS: %d, THE FILE SIZE IS: %d and the num of blocks is: %d\n",totalBlocks,inode->size,fileBlocks);
+    //printf(" TOTAL BLOCKS IS: %d, THE FILE SIZE IS: %d and the num of blocks is: %d\n",totalBlocks,inode->size,fileBlocks);
     
 
     // if offset is greater than the max size dont do anything?
@@ -1108,7 +1084,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
             // just allocate the number they need
             blocksAllocating = totalBlocks;
         }
-        printf("WE NEED MORE BLOCKS. totalBlocks: %d, fileBlocks: %d\n",totalBlocks,fileBlocks);
+        //printf("WE NEED MORE BLOCKS. totalBlocks: %d, fileBlocks: %d\n",totalBlocks,fileBlocks);
         // only loop however many blocks we are allocating
         for( directPtrIdx = 0; directPtrIdx < blocksAllocating; directPtrIdx++ ){
            printf("we are looping : %d\n",directPtrIdx);
@@ -1170,7 +1146,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
     writei(inode->ino,inode);
 
 
-    printf("THE AMOUNT I WROTE IS: %d out of %d\n",amountWritten,size);
+    //printf("THE AMOUNT I WROTE IS: %d out of %d\n",amountWritten,size);
 
 	// Note: this function should return the amount of bytes you write to disk
     return amountWritten;
@@ -1178,8 +1154,6 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 
 static int tfs_unlink(const char *path) {
     // function is very similar to rmdir
-
-    puts("I AM IN UNLINK!!!!!!!!!!!!!!!!!!!!!!!!");
 
     // step 0: get the bitmaps
     // get inode bitmap
@@ -1321,9 +1295,9 @@ static struct fuse_operations tfs_ope = {
 int main(int argc, char *argv[]) {
 	int fuse_stat;
 
-    printf("THE SIZE OF AN INODE IS: %lu\n", sizeof(struct inode));
-    printf("THE SIZE OF A DIRENT IS: %lu\n", sizeof(struct dirent));
-    printf("THE SIEZ OF A SUPERBLOCK IS: %lu\n",sizeof(struct superblock));
+    //printf("THE SIZE OF AN INODE IS: %lu\n", sizeof(struct inode));
+    //printf("THE SIZE OF A DIRENT IS: %lu\n", sizeof(struct dirent));
+    //printf("THE SIEZ OF A SUPERBLOCK IS: %lu\n",sizeof(struct superblock));
 	
     getcwd(diskfile_path, PATH_MAX);
 	strcat(diskfile_path, "/DISKFILE");
