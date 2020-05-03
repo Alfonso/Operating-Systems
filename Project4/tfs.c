@@ -28,6 +28,8 @@ char diskfile_path[PATH_MAX];
 int inodesPerBlock = BLOCK_SIZE / sizeof(struct inode);
 int direntsPerBlock = BLOCK_SIZE / sizeof(struct dirent);
 struct superblock* sb;
+int maxFileSize = BLOCK_SIZE * 16;
+
 
 // Declare your in-memory data structures here
 
@@ -492,7 +494,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
     // loop through the whole path
     while( token != NULL ){
         // try to find the dirent
-        findRes = dir_find( curIno, token,strlen(token),dirent);
+        findRes = dir_find( curIno, token,strlen(token) + 1,dirent);
         // check if it is found in curr directory
         if( findRes == -1 ){
             printf("%s is not found\n",token);
@@ -743,7 +745,7 @@ static int tfs_mkdir(const char *path, mode_t mode) {
     int newIno = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
-    int addRes = dir_add( *dirInode, newIno, target, strlen(target) );
+    int addRes = dir_add( *dirInode, newIno, target, strlen(target) + 1);
     if( addRes == -1 ){
         printf("Error adding!!!!!!!!!!!!!!!!");
         // could be because file already exists or do data
@@ -900,7 +902,7 @@ static int tfs_rmdir(const char *path) {
     }
 
 	// Step 6: Call dir_remove() to remove directory entry of target directory in its parent directory
-    int removeRes = dir_remove( *dirInode, target, strlen(target) );
+    int removeRes = dir_remove( *dirInode, target, strlen(target) + 1);
     if( removeRes == -1 ){
         puts("Unable to remove");
         return -ENOENT;
@@ -945,7 +947,7 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
     int newIno = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target file to parent directory
-    int addRes = dir_add(*dirInode, newIno, target, strlen(target));
+    int addRes = dir_add(*dirInode, newIno, target, strlen(target) + 1);
     if( addRes == -1 ){
         printf("error adding\n");
         // this can either be because the file already exists, or there is no mem
@@ -1009,32 +1011,153 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
     puts("I AM IN READ!!!!!!!!!!!!!!!!!!!!");
 
 	// Step 1: You could call get_node_by_path() to get inode from path
+    struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    // beacuse we are only using absolute paths, we can just pass root
+    int getRes = get_node_by_path( path, 0, inode);
+    if( getRes == -1 ){
+        puts("File does not exist");
+        return -1;
+    }
 
 	// Step 2: Based on size and offset, read its data blocks from disk
-
-	// Step 3: copy the correct amount of data from offset to buffer
+    // calculate where to start
+    int curPtrIdx = offset / BLOCK_SIZE;
+    
+    int offsetInBlock = offset % BLOCK_SIZE;
+    int amountRead = 0;
+    // we want to keep track of how many blocks need to be written
+    // this is capped bc blocksAllocating is capped at 16
+    char* blockBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    while( amountRead < size ){
+        // read what already is there
+        bio_read( (inode->direct_ptr)[curPtrIdx] + sb->d_start_blk, (void*) blockBuffer);
+        // we need to check if whether or not we write block size or what is left
+        if( (size - amountRead) <= BLOCK_SIZE - offsetInBlock ){
+            // we only need to copy the leftover bytes
+            memcpy( (void*)(buffer + amountRead), (void*) (blockBuffer + offsetInBlock), (size - amountRead));
+            amountRead += (size - amountRead);
+        }else{
+            // we need to copy potentially a page worth of memory (or just fill thepage)
+            memcpy( (void*)(buffer + amountRead), (void*) (blockBuffer + offsetInBlock),  (BLOCK_SIZE - offsetInBlock));
+            amountRead += (BLOCK_SIZE - offsetInBlock);
+        }
+        offsetInBlock = 0;
+        // move to next block
+        curPtrIdx += 1;
+        if( curPtrIdx >= (sizeof(inode->direct_ptr)/sizeof(int)) ){
+            break;
+        }
+        
+    }
 
 	// Note: this function should return the amount of bytes you copied to buffer
-	return 0;
+	return amountRead;
 }
 
 static int tfs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
 	
     puts("I AM IN WRITE!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    
+
     // Step 1: You could call get_node_by_path() to get inode from path
+    struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
+    // beacuse we are only using absolute paths, we can just pass root
+    int getRes = get_node_by_path( path, 0, inode);
+    if( getRes == -1 ){
+        puts("File does not exist");
+        return -1;
+    }
+
+    // step 1.5: Calculate total size of write and num of blocks
+    int totalSize = size + offset;
+    int totalBlocks = totalSize / BLOCK_SIZE;
+    if( totalSize % BLOCK_SIZE != 0 ){
+        totalBlocks += 1;
+    }
+    
+    // calculate how many blocks we already have??
+    int fileBlocks = inode->size / BLOCK_SIZE;
+    printf("THE FILE SIZE IS: %d and the num of blocks is: %d\n",inode->size,fileBlocks);
+    
+
+    // if offset is greater than the max size dont do anything?
+    if( offset >= maxFileSize ){
+        puts("Offset is greater than or equal to max file size");
+        // should we return an error?
+        return 0;
+    }
+
+    // check if we need to write more blocks than we have allocated
+    if( totalBlocks > fileBlocks ){
+        // check if they want to allocate more than 16 blocks
+        // which in our case is our file size limit
+        int directPtrIdx = 0;
+        int blocksAllocating = 0;
+        if( totalBlocks > (sizeof(inode->direct_ptr)/sizeof(int)) ){
+            blocksAllocating = (sizeof(inode->direct_ptr)/sizeof(int));
+        }else{
+            // just allocate the number they need
+            blocksAllocating = totalBlocks;
+        }
+
+        // only loop however many blocks we are allocating
+        for( directPtrIdx = 0; directPtrIdx < blocksAllocating; directPtrIdx++ ){
+           // check to make sure this ptr is not set yet
+           if( (inode->direct_ptr)[directPtrIdx] == -1 ){
+               int newBlockNum = get_avail_blkno();
+               if( newBlockNum == -1 ){
+                   // eror getting new blocks
+                   puts("No more available blocks");
+                   break;
+               }
+               // set the new ptr
+               (inode->direct_ptr)[directPtrIdx] = newBlockNum;
+               // increase size
+               inode->size += BLOCK_SIZE;
+           }
+       }
+    }
 
 	// Step 2: Based on size and offset, read its data blocks from disk
+    // calculate where to start
+    int curPtrIdx = offset / BLOCK_SIZE;
+    
+    int offsetInBlock = offset % BLOCK_SIZE;
+    int amountWritten = 0;
+    // we want to keep track of how many blocks need to be written
+    // this is capped bc blocksAllocating is capped at 16
+    char* blockBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    while( amountWritten < size ){
+        // read what already is there
+        bio_read( (inode->direct_ptr)[curPtrIdx] + sb->d_start_blk, (void*) blockBuffer);
+        // we need to check if whether or not we write block size or what is left
+        if( (size - amountWritten) <= BLOCK_SIZE - offsetInBlock ){
+            // we only need to copy the leftover bytes
+            memcpy( (void*) (blockBuffer + offsetInBlock), (void*) ( buffer + amountWritten ), (size - amountWritten));
+            amountWritten += (size - amountWritten);
+        }else{
+            // we need to copy potentially a page worth of memory (or just fill thepage)
+            memcpy( (void*) (blockBuffer + offsetInBlock), (void*) ( buffer + amountWritten), (BLOCK_SIZE - offsetInBlock));
+            amountWritten += (BLOCK_SIZE - offsetInBlock);
+        }
+        offsetInBlock = 0;
+	    // Step 3: Write the correct amount of data from offset to disk
+        bio_write( (inode->direct_ptr)[curPtrIdx] + sb->d_start_blk, (void*) blockBuffer );
+        // move to next block
+        curPtrIdx += 1;
+        if( curPtrIdx >= (sizeof(inode->direct_ptr)/sizeof(int)) ){
+            break;
+        }
+        
+    }
 
-	// Step 3: Write the correct amount of data from offset to disk
-
-	// Step 4: Update the inode info and write it to disk
+    // update mtime
+	time( &((inode->vstat).st_mtime) );
+    
+    // Step 4: Update the inode info and write it to disk
+    writei(inode->ino,inode);
 
 	// Note: this function should return the amount of bytes you write to disk
-	
-    // update mtime
-
-    return size;
+    return amountWritten;
 }
 
 static int tfs_unlink(const char *path) {
@@ -1114,7 +1237,7 @@ static int tfs_unlink(const char *path) {
     }
 
 	// Step 6: Call dir_remove() to remove directory entry of target file in its parent directory
-    int removeRes = dir_remove( *dirInode, target, strlen(target) );
+    int removeRes = dir_remove( *dirInode, target, strlen(target) + 1 );
     if( removeRes == -1 ){
         puts("Unable to remove");
         return -ENOENT;
