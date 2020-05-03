@@ -28,7 +28,6 @@ char diskfile_path[PATH_MAX];
 int inodesPerBlock = BLOCK_SIZE / sizeof(struct inode);
 int direntsPerBlock = BLOCK_SIZE / sizeof(struct dirent);
 struct superblock* sb;
-int maxFileSize = BLOCK_SIZE * 16;
 
 
 // Declare your in-memory data structures here
@@ -102,7 +101,7 @@ int get_avail_blkno() {
             char* newBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
             memset(newBuff, 0, BLOCK_SIZE);
             bio_write( counter + sb->d_start_blk, (void*) newBuff );
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!THE FREE DATA BLOCK WE ARE ASSIGNING IS: %d\n",counter);
+            //printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!THE FREE DATA BLOCK WE ARE ASSIGNING IS: %d\n",counter);
             // return the block number
             return counter;
         }
@@ -156,13 +155,14 @@ int readi(uint16_t ino, struct inode *inode) {
 }
 
 int writei(uint16_t ino, struct inode *inode) {
-    int counter2 = 0;
+    /*
+    int counter2 = 0;   
     printf("IN WRITEI for inode: %d\n",ino);
     for(counter2 = 0; counter2 < 16; counter2++){
         printf("%d ",(inode->direct_ptr)[counter2]);
     }
     puts("");
-
+    */
 
 	// Step 1: Get the block number where this inode resides on disk
     // in relation to the inode table
@@ -320,7 +320,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                     // write this block back to disk
                     bio_write( blockNum, (void*) buffer);
 
-                    printf(" WE WROTE THE DIRENT IN BLOCK NUMBER: %d\n",(dir_inode.direct_ptr)[directPtrIdx]);
+                    //printf(" WE WROTE THE DIRENT IN BLOCK NUMBER: %d\n",(dir_inode.direct_ptr)[directPtrIdx]);
 
                     // we are done with this so break out
                     break;
@@ -349,7 +349,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
             return -1;
         }
 
-        puts("WE HAVE NO MORE ROOM INSIDE ALL ALLOCATED BLOCKS> THUS WE NEED NAOTHER BLOCK>>>>>>>>");
+        //puts("WE HAVE NO MORE ROOM INSIDE ALL ALLOCATED BLOCKS> THUS WE NEED NAOTHER BLOCK>>>>>>>>");
 
         // we have the first free ptr idx that we can allocate a new block for
         // find the next available data block (idx starting from data segment)
@@ -377,11 +377,14 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
         }
         // write it to the disk (newDataBlock is 0 indexed from data segment. Have to incldue blocks before)
         bio_write( newDataBlock + sb->d_start_blk, (void*) buffer);
+    
+	    // Update directory inode
+        // UDATE SIZE                                                       ********
+        dir_inode.size += BLOCK_SIZE;
     }
 
-	// Update directory inode
-    // UDATE SIZE                                                       ********
-
+    // change modify time of directory
+    time( &((dir_inode.vstat).st_mtime) );
 
 	// Write directory entry to disk
     writei(dir_inode.ino, &dir_inode);
@@ -777,6 +780,7 @@ static int tfs_mkdir(const char *path, mode_t mode) {
     (targetInode->vstat).st_nlink = 1;
     (targetInode->vstat).st_size = 0;
     time( &((targetInode->vstat).st_atime) );
+    time( &((targetInode->vstat).st_mtime) );
 
 	// Step 6: Call writei() to write inode to disk
     writei(newIno, targetInode);
@@ -977,6 +981,7 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
     (targetInode->vstat).st_nlink = 1;
     (targetInode->vstat).st_size = 0;
     time( &((targetInode->vstat).st_atime) );
+    time( &((targetInode->vstat).st_mtime) );
 
 	// Step 6: Call writei() to write inode to disk
     writei(newIno, targetInode);
@@ -1025,17 +1030,19 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
     
     int offsetInBlock = offset % BLOCK_SIZE;
     int amountRead = 0;
+    int amountLeft = size;
     // we want to keep track of how many blocks need to be written
     // this is capped bc blocksAllocating is capped at 16
     char* blockBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
     while( amountRead < size ){
+        amountLeft = size - amountRead;
         // read what already is there
         bio_read( (inode->direct_ptr)[curPtrIdx] + sb->d_start_blk, (void*) blockBuffer);
         // we need to check if whether or not we write block size or what is left
-        if( (size - amountRead) <= BLOCK_SIZE - offsetInBlock ){
+        if( amountLeft <= BLOCK_SIZE - offsetInBlock ){
             // we only need to copy the leftover bytes
-            memcpy( (void*)(buffer + amountRead), (void*) (blockBuffer + offsetInBlock), (size - amountRead));
-            amountRead += (size - amountRead);
+            memcpy( (void*)(buffer + amountRead), (void*) (blockBuffer + offsetInBlock), amountLeft);
+            amountRead += amountLeft;
         }else{
             // we need to copy potentially a page worth of memory (or just fill thepage)
             memcpy( (void*)(buffer + amountRead), (void*) (blockBuffer + offsetInBlock),  (BLOCK_SIZE - offsetInBlock));
@@ -1049,6 +1056,8 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
         }
         
     }
+    
+    printf("THE AMOUNT I READ IS: %d out of %d\n",amountRead,size);
 
 	// Note: this function should return the amount of bytes you copied to buffer
 	return amountRead;
@@ -1056,7 +1065,7 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 
 static int tfs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
 	
-    puts("I AM IN WRITE!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    printf("I AM IN WRITE!!!!!!!!!!!!!!!!!!!!!!!!!!! offset is: %d size is: %d\n",offset,size);
 
     // Step 1: You could call get_node_by_path() to get inode from path
     struct inode* inode = (struct inode*) malloc(sizeof(struct inode));
@@ -1068,6 +1077,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
     }
 
     // step 1.5: Calculate total size of write and num of blocks
+    int maxFileSize = BLOCK_SIZE * (sizeof(inode->direct_ptr)/sizeof(int));
     int totalSize = size + offset;
     int totalBlocks = totalSize / BLOCK_SIZE;
     if( totalSize % BLOCK_SIZE != 0 ){
@@ -1076,11 +1086,11 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
     
     // calculate how many blocks we already have??
     int fileBlocks = inode->size / BLOCK_SIZE;
-    printf("THE FILE SIZE IS: %d and the num of blocks is: %d\n",inode->size,fileBlocks);
+    printf(" TOTAL BLOCKS IS: %d, THE FILE SIZE IS: %d and the num of blocks is: %d\n",totalBlocks,inode->size,fileBlocks);
     
 
     // if offset is greater than the max size dont do anything?
-    if( offset >= maxFileSize ){
+    if( offset > maxFileSize ){
         puts("Offset is greater than or equal to max file size");
         // should we return an error?
         return 0;
@@ -1098,9 +1108,10 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
             // just allocate the number they need
             blocksAllocating = totalBlocks;
         }
-
+        printf("WE NEED MORE BLOCKS. totalBlocks: %d, fileBlocks: %d\n",totalBlocks,fileBlocks);
         // only loop however many blocks we are allocating
         for( directPtrIdx = 0; directPtrIdx < blocksAllocating; directPtrIdx++ ){
+           printf("we are looping : %d\n",directPtrIdx);
            // check to make sure this ptr is not set yet
            if( (inode->direct_ptr)[directPtrIdx] == -1 ){
                int newBlockNum = get_avail_blkno();
@@ -1123,17 +1134,19 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
     
     int offsetInBlock = offset % BLOCK_SIZE;
     int amountWritten = 0;
+    int amountLeft = size;
     // we want to keep track of how many blocks need to be written
     // this is capped bc blocksAllocating is capped at 16
     char* blockBuffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
     while( amountWritten < size ){
+        amountLeft = size - amountWritten;
         // read what already is there
         bio_read( (inode->direct_ptr)[curPtrIdx] + sb->d_start_blk, (void*) blockBuffer);
         // we need to check if whether or not we write block size or what is left
-        if( (size - amountWritten) <= BLOCK_SIZE - offsetInBlock ){
+        if( amountLeft <= BLOCK_SIZE - offsetInBlock ){
             // we only need to copy the leftover bytes
-            memcpy( (void*) (blockBuffer + offsetInBlock), (void*) ( buffer + amountWritten ), (size - amountWritten));
-            amountWritten += (size - amountWritten);
+            memcpy( (void*) (blockBuffer + offsetInBlock), (void*) ( buffer + amountWritten ), amountLeft);
+            amountWritten += amountLeft;
         }else{
             // we need to copy potentially a page worth of memory (or just fill thepage)
             memcpy( (void*) (blockBuffer + offsetInBlock), (void*) ( buffer + amountWritten), (BLOCK_SIZE - offsetInBlock));
@@ -1155,6 +1168,9 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
     
     // Step 4: Update the inode info and write it to disk
     writei(inode->ino,inode);
+
+
+    printf("THE AMOUNT I WROTE IS: %d out of %d\n",amountWritten,size);
 
 	// Note: this function should return the amount of bytes you write to disk
     return amountWritten;
@@ -1381,6 +1397,8 @@ int trimBlocks(struct inode* inode){
                 // set the value back to -1
                 (inode->direct_ptr)[directPtrIdx] = -1;
                 reclaimed = 0;
+                // change hte size of the dir because we are removing a block
+                inode->size -= BLOCK_SIZE;
             }
             // set it back to 1 to check next block
             reclaimBlock = 1;
