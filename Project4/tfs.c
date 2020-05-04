@@ -1099,7 +1099,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
                // set the new ptr
                (inode->direct_ptr)[directPtrIdx] = newBlockNum;
                // increase size
-               inode->size += BLOCK_SIZE;
+               //inode->size += BLOCK_SIZE;
            }
        }
     }
@@ -1141,6 +1141,13 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 
     // update mtime
 	time( &((inode->vstat).st_mtime) );
+
+    // set file size?
+    if( offset > inode->size ){
+        inode->size = offset + amountWritten;
+    }else{
+        inode->size += amountWritten;
+    }
     
     // Step 4: Update the inode info and write it to disk
     writei(inode->ino,inode);
