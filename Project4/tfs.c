@@ -604,6 +604,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
 static void tfs_destroy(void *userdata) {
 
+    // print the data blocks to count them
+    // printBlocks500()
+
 	// Step 1: De-allocate in-memory data structures
     // de allocate the super block.
     free(sb);
@@ -1390,3 +1393,15 @@ int trimBlocks(struct inode* inode){
     return reclaimed;
     
 }
+void printBlock500(){
+    int counter = 0;
+    char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+    char* dbuff = (char*) malloc(sizeof(char) * (MAX_DNUM / 8 ) );
+    bio_read(2, (void*) buffer);
+    for(counter = 0; counter < MAX_DNUM / 8; counter++)
+        dbuff[counter] = buffer[counter];
+    bitmap_t dbit = (bitmap_t) dbuff;
+    for(counter = 0; counter < 500; counter++)
+        printf("counter: %d, bit: %d\n",counter, get_bitmap(dbit,counter));
+}
+/*  i love rin  */
