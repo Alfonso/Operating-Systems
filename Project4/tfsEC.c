@@ -427,14 +427,14 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                         }
                     
                     }
-                if( wroteDir == 1 ){
-                    break;
-                }
+                    if( wroteDir == 1 ){
+                        break;
+                    }
                 }
             }
-        if( wroteDir == 1) {
-            break;
-        }
+            if( wroteDir == 1) {
+                break;
+            }
         }
     }
 
@@ -834,7 +834,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         
         /* we need to add 304 directories */
         int numDirs = 306;
-        puts("!!!!!!!!!! WE ARE TRYING TO ADD 305 DIRS TO ROOT !!!!!!!!!!");
+        printf("!!!!!!!!!! WE ARE TRYING TO ADD %d DIRS TO ROOT !!!!!!!!!!\n",numDirs);
         int counter = 0; 
         for( counter = 1; counter < numDirs + 1; counter++ ){
             char tempName[5];
@@ -845,7 +845,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
             readi(0,root);
         }
         printf("!!!!!!!!!! WE SUCCESSFULLY ADDED %d DIRS TO ROOT !!!!!!!!!!\n",numDirs);
-        puts("!!!!!!!!!! TRYING TO ADD THE LAST DIR TO ROOT !!!!!!!!!!");
+        printf("!!!!!!!!!! TRYING TO ADD THE LAST DIR %d TO ROOT !!!!!!!!!!\n",numDirs+1);
         printf("%d",counter);
         char lastName[5];
         sprintf(lastName, "%d",numDirs+1);
