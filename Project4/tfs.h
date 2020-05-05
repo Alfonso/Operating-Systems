@@ -66,5 +66,5 @@ uint8_t get_bitmap(bitmap_t b, int i) {
 
 /*                  PRIVATE HELPER FUNCTIONS                    */
 int trimBlocks(struct inode*);
-
+int getBlockNums(int,int*,struct inode*);
 #endif

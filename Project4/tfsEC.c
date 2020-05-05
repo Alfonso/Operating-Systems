@@ -269,7 +269,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
                     int direntIdx = 0;
                     // copy byte by byte to our dirent buffer
                     for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
-                        dbuff[direntIdx] = buffer[direntIdx + blockIdx * sizeof(struct dirent)];
+                        dbuff[direntIdx] = blockBuff[direntIdx + blockIdx * sizeof(struct dirent)];
                     }
                     
 
@@ -364,7 +364,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                     bio_write( blockNum, (void*) buffer);
 
                     //printf(" WE WROTE THE DIRENT IN BLOCK NUMBER: %d\n",(dir_inode.direct_ptr)[directPtrIdx]);
-
+                    puts(" we wrote in an existing direct block");
                     // we are done with this so break out
                     break;
                 }
@@ -381,6 +381,63 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
             break;
     }
 
+    if( wroteDir == 0 ){
+        /*      check now if there are available spaces in the blocks in indirect block             */
+        int indirectPtrIdx = 0;
+        int* blockArr = (int*) malloc(sizeof(int) * (BLOCK_SIZE / sizeof(int) ));
+        for( indirectPtrIdx = 0; indirectPtrIdx < (sizeof(dir_inode.indirect_ptr) / sizeof(int)); indirectPtrIdx++ ){
+
+            int res = getBlockNums( indirectPtrIdx, blockArr, &dir_inode );
+            if( res > 0 ){
+                // we have direct blocks to look at
+                int arrIdx = 0;
+                for( arrIdx = 0; arrIdx < res; arrIdx++ ){
+                    char* blockBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+                    int blockNum = blockArr[arrIdx] + sb->d_start_blk;
+                    bio_read( blockNum, blockBuff );
+                    int blockIdx = 0;
+                    // loop through all of the dirents in this block
+                    for( blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++ ){
+                        // we want to only copy the bytes of a dirent into this buffer
+                        char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                        int direntIdx = 0;
+                        // copy byte by byte to our dirent buffer
+                        for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                            dbuff[direntIdx] = blockBuff[direntIdx + blockIdx * sizeof(struct dirent)];
+                        }
+                    
+
+                        // check if the dirent is valid
+                        if(((struct dirent*) dbuff)->valid == 0){
+                            // it is not so fill it here
+                            wroteDir = 1;
+                            ((struct dirent*) dbuff)->valid = 1;
+                            ((struct dirent*) dbuff)->ino = f_ino;
+                            ((struct dirent*) dbuff)->len = name_len;
+                            strcpy( ((struct dirent*) dbuff)->name, fname);
+                            // put this back into the block buffer
+                            for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                                blockBuff[direntIdx + blockIdx * sizeof(struct dirent)] = dbuff[direntIdx];
+                            }
+                            // write this block back to disk
+                            puts(" WE WROTE TO A DATA BLOCK IN AN INDIRECT BLOCK");
+                            bio_write( blockNum, (void*) blockBuff);
+                            // break out
+                            break;
+                        }
+                    
+                    }
+                if( wroteDir == 1 ){
+                    break;
+                }
+                }
+            }
+        if( wroteDir == 1) {
+            break;
+        }
+        }
+    }
+
 	// Allocate a new data block for this directory if it does not exist
     // check if we wrote the dir (we only did if there was a free dirent)
     if( wroteDir == 0 ){
@@ -388,43 +445,169 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
         if( firstPtr == -1 ){
             // we dont have any, and have not already written the dirent
             // thus we have no more space
-            puts("No more space in directory");
-            return -1;
-        }
+            puts("No more space in the direct blocks");
+        }else{
+            puts("WE ARE ADDING ANOTHER DIRECT BLOCK");
+            //puts("WE HAVE NO MORE ROOM INSIDE ALL ALLOCATED BLOCKS> THUS WE NEED NAOTHER BLOCK>>>>>>>>");
 
-        //puts("WE HAVE NO MORE ROOM INSIDE ALL ALLOCATED BLOCKS> THUS WE NEED NAOTHER BLOCK>>>>>>>>");
-
-        // we have the first free ptr idx that we can allocate a new block for
-        // find the next available data block (idx starting from data segment)
-        int newDataBlock = get_avail_blkno();
-        if(newDataBlock == -1){
-            // no free data block
-            return -1;
+            // we have the first free ptr idx that we can allocate a new block for
+            // find the next available data block (idx starting from data segment)
+            int newDataBlock = get_avail_blkno();
+            if(newDataBlock == -1){
+                // no free data block
+                return -1;
+            }
+            wroteDir = 1;
+            // make ptr point to new data block
+            dir_inode.direct_ptr[firstPtr] = newDataBlock;
+            // add data
+            struct dirent* tempDir = (struct dirent*) malloc( sizeof(struct dirent) );
+            tempDir->ino = f_ino;
+            tempDir->valid = 1;
+            tempDir->len = name_len;
+            strcpy( tempDir->name, fname);
+            // cast it to a buffer
+            char* dbuff = (char*) tempDir;
+            // create a block buffer and add this
+            char* buffer = (char*) malloc( sizeof(char*) * BLOCK_SIZE);
+            // copy over dirent to block buffer
+            int counter = 0;
+            for(counter = 0; counter < sizeof(struct dirent); counter++){
+                buffer[counter] = dbuff[counter];
+            }
+            // write it to the disk (newDataBlock is 0 indexed from data segment. Have to incldue blocks before)
+            bio_write( newDataBlock + sb->d_start_blk, (void*) buffer);
+        
+            // Update directory inode
+            // UDATE SIZE                                                       ********
+            dir_inode.size += BLOCK_SIZE;
         }
-        // make ptr point to new data block
-        dir_inode.direct_ptr[firstPtr] = newDataBlock;
-        // add data
-        struct dirent* tempDir = (struct dirent*) malloc( sizeof(struct dirent) );
-        tempDir->ino = f_ino;
-        tempDir->valid = 1;
-        tempDir->len = name_len;
-        strcpy( tempDir->name, fname);
-        // cast it to a buffer
-        char* dbuff = (char*) tempDir;
-        // create a block buffer and add this
-        char* buffer = (char*) malloc( sizeof(char*) * BLOCK_SIZE);
-        // copy over dirent to block buffer
-        int counter = 0;
-        for(counter = 0; counter < sizeof(struct dirent); counter++){
-            buffer[counter] = dbuff[counter];
-        }
-        // write it to the disk (newDataBlock is 0 indexed from data segment. Have to incldue blocks before)
-        bio_write( newDataBlock + sb->d_start_blk, (void*) buffer);
-    
-	    // Update directory inode
-        // UDATE SIZE                                                       ********
-        dir_inode.size += BLOCK_SIZE;
     }
+
+
+
+    if( wroteDir == 0 ){
+        /*      check now if there are available spaces in the blocks in indirect block             */
+        int indirectPtrIdx = 0;
+        int* blockArr = (int*) malloc(sizeof(int) * (BLOCK_SIZE / sizeof(int) ));
+        for( indirectPtrIdx = 0; indirectPtrIdx < (sizeof(dir_inode.indirect_ptr) / sizeof(int)); indirectPtrIdx++ ){
+
+            int res = getBlockNums( indirectPtrIdx, blockArr, &dir_inode );
+            if( (res != -1) && (res != (BLOCK_SIZE / sizeof(int))) ){
+                // we have a direct block in the indirect block we can allocate
+                // get the indirect block
+                char* indirectBlockBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+                int blockNum = blockArr[indirectPtrIdx] + sb->d_start_blk;
+                bio_read( blockNum, indirectBlockBuff );
+                int indirectBlockIdx = 0;
+                for( indirectBlockIdx = 0; indirectBlockIdx < (BLOCK_SIZE / sizeof(int)); indirectBlockIdx++ ){
+                    // loop through all of the pointers in the 
+                    char* dataBlockBuff = (char*) malloc( sizeof(int) );
+                    int dataIdx = 0;
+                    // loop through to copy the bytes
+                    for( dataIdx = 0; dataIdx < sizeof(int); dataIdx++ ){
+                        dataBlockBuff[dataIdx] = indirectBlockBuff[dataIdx + indirectBlockIdx * sizeof(int)];
+                    }
+
+                    // check if the dataBlockBuff is not set yet
+                    if( *((int*) dataBlockBuff) == 0 ){
+                        // it has not been set yet, so allocate a new bkock
+                        int newDataBlock = get_avail_blkno();
+                        if(newDataBlock == -1){
+                            // no free data block
+                            return -1;
+                        }
+                        // make ptr point to new data block
+                        *((int*) dataBlockBuff) = newDataBlock;
+                        // add data
+                        struct dirent* tempDir = (struct dirent*) malloc( sizeof(struct dirent) );
+                        tempDir->ino = f_ino;
+                        tempDir->valid = 1;
+                        tempDir->len = name_len;
+                        strcpy( tempDir->name, fname);
+                        // cast it to a buffer
+                        char* dbuff = (char*) tempDir;
+                        // create a block buffer and add this
+                        char* buffer = (char*) malloc( sizeof(char*) * BLOCK_SIZE);
+                        // copy over dirent to block buffer
+                        int counter = 0;
+                        for(counter = 0; counter < sizeof(struct dirent); counter++){
+                            buffer[counter] = dbuff[counter];
+                        }
+                        // write it to the disk (newDataBlock is 0 indexed from data segment. Have to incldue blocks before)
+                        bio_write( newDataBlock + sb->d_start_blk, (void*) buffer);
+                        // write the new change to the indirect block
+                        for( dataIdx = 0; dataIdx < sizeof(int); dataIdx++ ){
+                            indirectBlockBuff[dataIdx + indirectBlockIdx * sizeof(int)] = dataBlockBuff[dataIdx];
+                        }
+                        bio_write( blockNum, (void*) indirectBlockBuff );
+                        wroteDir = 1;
+                        // Update directory inode
+                        // UDATE SIZE                                                       ********
+                        dir_inode.size += BLOCK_SIZE;
+                        puts("!!!!!!!!!! WE ARE ADDING A NEW DATA BLOCK IN A INDIRECT BLOCK");
+                        break;
+                    }
+                } 
+            }
+            if( wroteDir == 1 ){
+                break;
+            }
+        }
+    }
+
+    /*          check if we can allocate a new indirect block           */
+    if( wroteDir == 0){
+        // now we check to see if there are any indirect blocks we can allocate
+        int indirectPtrIdx = 0;
+        for( indirectPtrIdx = 0; indirectPtrIdx < (sizeof(dir_inode.indirect_ptr)/sizeof(int)); indirectPtrIdx++ ){
+            // check if the indirect ptr is not allocated
+            if( dir_inode.indirect_ptr[indirectPtrIdx] == -1 ){
+                // create a new block for the indirect ptr
+                int newIndirectBlockNum = get_avail_blkno();
+                if( newIndirectBlockNum == -1 ){
+                    return -1;
+                }
+                (dir_inode.indirect_ptr)[indirectPtrIdx] = newIndirectBlockNum;
+                // we have now allocated this block so we need to now allocate another block
+                // for the direct block this indirect block points to
+                char* dataBlockBuff = (char*) malloc(sizeof(char) * sizeof(int));
+                int newBlockNum = get_avail_blkno();
+                if( newBlockNum == -1 ){
+                    return -1;
+                }
+                *((int*) dataBlockBuff) = newBlockNum;
+                // we now need to make a dirent to put into this block
+                // add data
+                struct dirent* tempDir = (struct dirent*) malloc( sizeof(struct dirent) );
+                tempDir->ino = f_ino;
+                tempDir->valid = 1;
+                tempDir->len = name_len;
+                strcpy( tempDir->name, fname);
+                // cast it to a buffer
+                char* dbuff = (char*) tempDir;
+                char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+                int counter = 0;
+                for( counter = 0; counter < sizeof(struct dirent); counter++ ){
+                    buffer[counter] = dbuff[counter];
+                } 
+                // now write this new data block to disk
+                bio_write( newBlockNum + sb->d_start_blk, (void*) buffer);
+                // clear buffer
+                memset(buffer, 0, BLOCK_SIZE);
+                for( counter = 0; counter < sizeof(int); counter++){
+                    buffer[counter] = dataBlockBuff[counter];
+                }
+                // now write the new indirect block to disk
+                bio_write( newIndirectBlockNum + sb->d_start_blk, (void*) buffer);
+                dir_inode.size += BLOCK_SIZE;
+                wroteDir = 1;
+                puts("!!!!!!!!!! WE ARE CREATING A NEW INDIRECT BLOCK !!!!!!!!!!");
+                break;
+            }
+        }
+    }
+
 
     // change modify time of directory
     time( &((dir_inode.vstat).st_mtime) );
@@ -645,7 +828,34 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
         bio_read(0,(void*) buffer);
         sb = (struct superblock*) buffer;
-    }
+    
+        struct inode* root = (struct inode*) malloc(sizeof(struct inode));
+        readi(0, root);
+        
+        /* we need to add 304 directories */
+        int numDirs = 306;
+        puts("!!!!!!!!!! WE ARE TRYING TO ADD 305 DIRS TO ROOT !!!!!!!!!!");
+        int counter = 0; 
+        for( counter = 1; counter < numDirs + 1; counter++ ){
+            char tempName[5];
+            bzero(tempName,5);
+            sprintf( tempName, "%d", counter );
+            printf("%d ",counter);
+            dir_add( *root, counter, tempName, strlen(tempName)+1 );
+            readi(0,root);
+        }
+        printf("!!!!!!!!!! WE SUCCESSFULLY ADDED %d DIRS TO ROOT !!!!!!!!!!\n",numDirs);
+        puts("!!!!!!!!!! TRYING TO ADD THE LAST DIR TO ROOT !!!!!!!!!!");
+        printf("%d",counter);
+        char lastName[5];
+        sprintf(lastName, "%d",numDirs+1);
+        int addRes = dir_add( *root, numDirs+1, lastName,strlen(lastName)+1);
+        readi(0, root);
+        struct dirent* dirent = (struct dirent*) malloc(sizeof(struct dirent));
+        int findRes = dir_find(0, lastName, strlen(lastName)+1, dirent);
+        printf("DIR ADD RES IS: %d, FIND IS: %d\n", addRes, findRes);
+        printf("THE %dth FOLDER NAME IS: %s, ITS INO IS: %d\n", counter, dirent->name,dirent->ino);
+   }
 
 	return NULL;
 }
@@ -1376,8 +1586,7 @@ int getBlockNums(int indirectPtrIdx, int* numArr, struct inode* inode){
         int indirectBlockNum = (inode->indirect_ptr)[indirectPtrIdx] + sb->d_start_blk;
         bio_read( indirectBlockNum, indirectBlockBuff );
     
-        indirectBlockIdx = 0;
-    
+        int indirectBlockIdx = 0;
         
         /*                  CHANGE THE UPPER CAP                    */
         for( indirectBlockIdx = 0; indirectBlockIdx < BLOCK_SIZE / sizeof(int); indirectBlockIdx++){
@@ -1389,13 +1598,16 @@ int getBlockNums(int indirectPtrIdx, int* numArr, struct inode* inode){
             }
 
             // how do I know if this is an actual valid 
-
+            if( *((int*) dataBlockBuff) > 0 ){
+                numArr[idx] = *((int*) dataBlockBuff);
+                idx += 1;
+            }
         }
     
     }else{
-        puts("something needs to go here");
+        return -1;
     }
-
+    return idx;
 }
 
 
