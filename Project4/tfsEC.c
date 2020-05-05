@@ -364,7 +364,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                     bio_write( blockNum, (void*) buffer);
 
                     //printf(" WE WROTE THE DIRENT IN BLOCK NUMBER: %d\n",(dir_inode.direct_ptr)[directPtrIdx]);
+                    
                     puts(" we wrote in an existing direct block");
+                    
                     // we are done with this so break out
                     break;
                 }
@@ -420,7 +422,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                                 blockBuff[direntIdx + blockIdx * sizeof(struct dirent)] = dbuff[direntIdx];
                             }
                             // write this block back to disk
+                            
                             puts(" WE WROTE TO A DATA BLOCK IN AN INDIRECT BLOCK");
+                            
                             bio_write( blockNum, (void*) blockBuff);
                             // break out
                             break;
@@ -445,9 +449,13 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
         if( firstPtr == -1 ){
             // we dont have any, and have not already written the dirent
             // thus we have no more space
-            puts("No more space in the direct blocks");
+            
+            //puts("No more space in the direct blocks");
+        
         }else{
+            
             puts("WE ARE ADDING ANOTHER DIRECT BLOCK");
+            
             //puts("WE HAVE NO MORE ROOM INSIDE ALL ALLOCATED BLOCKS> THUS WE NEED NAOTHER BLOCK>>>>>>>>");
 
             // we have the first free ptr idx that we can allocate a new block for
@@ -497,7 +505,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                 // we have a direct block in the indirect block we can allocate
                 // get the indirect block
                 char* indirectBlockBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
-                int blockNum = blockArr[indirectPtrIdx] + sb->d_start_blk;
+                int blockNum = (dir_inode.indirect_ptr)[indirectPtrIdx] + sb->d_start_blk;
                 bio_read( blockNum, indirectBlockBuff );
                 int indirectBlockIdx = 0;
                 for( indirectBlockIdx = 0; indirectBlockIdx < (BLOCK_SIZE / sizeof(int)); indirectBlockIdx++ ){
@@ -508,7 +516,6 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                     for( dataIdx = 0; dataIdx < sizeof(int); dataIdx++ ){
                         dataBlockBuff[dataIdx] = indirectBlockBuff[dataIdx + indirectBlockIdx * sizeof(int)];
                     }
-
                     // check if the dataBlockBuff is not set yet
                     if( *((int*) dataBlockBuff) == 0 ){
                         // it has not been set yet, so allocate a new bkock
@@ -545,7 +552,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                         // Update directory inode
                         // UDATE SIZE                                                       ********
                         dir_inode.size += BLOCK_SIZE;
+                        
                         puts("!!!!!!!!!! WE ARE ADDING A NEW DATA BLOCK IN A INDIRECT BLOCK");
+                        
                         break;
                     }
                 } 
@@ -594,15 +603,17 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
                 // now write this new data block to disk
                 bio_write( newBlockNum + sb->d_start_blk, (void*) buffer);
                 // clear buffer
-                memset(buffer, 0, BLOCK_SIZE);
+                char* indirectBlockBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
                 for( counter = 0; counter < sizeof(int); counter++){
-                    buffer[counter] = dataBlockBuff[counter];
+                    indirectBlockBuff[counter] = dataBlockBuff[counter];
                 }
                 // now write the new indirect block to disk
-                bio_write( newIndirectBlockNum + sb->d_start_blk, (void*) buffer);
+                bio_write( newIndirectBlockNum + sb->d_start_blk, (void*) indirectBlockBuff);
                 dir_inode.size += BLOCK_SIZE;
                 wroteDir = 1;
+                
                 puts("!!!!!!!!!! WE ARE CREATING A NEW INDIRECT BLOCK !!!!!!!!!!");
+                
                 break;
             }
         }
@@ -685,6 +696,56 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
                 }
             }
         }
+    }
+
+    
+    // we now need to check all of the indirect ptrs
+    int indirectPtrIdx = 0;
+    int* blockArr = (int*) malloc(sizeof(int) * (BLOCK_SIZE / sizeof(int) ));
+    for( indirectPtrIdx = 0; indirectPtrIdx < (sizeof(dir_inode.indirect_ptr) / sizeof(int)); indirectPtrIdx++ ){
+
+        int res = getBlockNums( indirectPtrIdx, blockArr, &dir_inode );
+        if( res > 0 ){
+            // we have direct blocks to look at
+            int arrIdx = 0;
+            for( arrIdx = 0; arrIdx < res; arrIdx++ ){
+                char* blockBuff = (char*) malloc(sizeof(char) * BLOCK_SIZE);
+                int blockNum = blockArr[arrIdx] + sb->d_start_blk;
+                bio_read( blockNum, blockBuff );
+                // loop through all of the dirents in this block
+                for( blockIdx = 0; blockIdx < direntsPerBlock; blockIdx++ ){
+                    // we want to only copy the bytes of a dirent into this buffer
+                    char* dbuff = (char*) malloc(sizeof(char) * sizeof(struct dirent));
+                    int direntIdx = 0;
+                    // copy byte by byte to our dirent buffer
+                    for(direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++){
+                        dbuff[direntIdx] = blockBuff[direntIdx + blockIdx * sizeof(struct dirent)];
+                    }
+                    
+
+                    // check if the dirent is valid
+                    if(((struct dirent*) dbuff)->valid == 0){
+                        // it is not so continue
+                        continue;
+                    }
+                    // check if the name is the same
+                    if( strcmp( ((struct dirent*) dbuff)->name, fname ) == 0 ){
+                        // remove the dirent
+                        ((struct dirent*) dbuff)->valid = 0;
+                        // save it to the disk
+                        for( direntIdx = 0; direntIdx < sizeof(struct dirent); direntIdx++ ){
+                            blockBuff[direntIdx + blockIdx * sizeof(struct dirent)] = dbuff[direntIdx];
+                        }
+                        bio_write( blockNum, blockBuff );
+                        
+                        return 0;
+                    }
+                    // they are not the same, move onto next dirent           
+                    
+                }
+            }
+        }
+
     }
     
 
@@ -828,17 +889,21 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         char* buffer = (char*) malloc(sizeof(char) * BLOCK_SIZE);
         bio_read(0,(void*) buffer);
         sb = (struct superblock*) buffer;
-    
+        /* 
         struct inode* root = (struct inode*) malloc(sizeof(struct inode));
         readi(0, root);
-        
+        */
+        /* 19 dirents in a data block */
+        /* 1024 data blocks in an indirect block */
+        /* So, 19456 dirents per indirect block */ 
         /* we need to add 304 directories */
+        /*
         int numDirs = 306;
         printf("!!!!!!!!!! WE ARE TRYING TO ADD %d DIRS TO ROOT !!!!!!!!!!\n",numDirs);
         int counter = 0; 
         for( counter = 1; counter < numDirs + 1; counter++ ){
-            char tempName[5];
-            bzero(tempName,5);
+            char tempName[10];
+            bzero(tempName,10);
             sprintf( tempName, "%d", counter );
             printf("%d ",counter);
             dir_add( *root, counter, tempName, strlen(tempName)+1 );
@@ -847,7 +912,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         printf("!!!!!!!!!! WE SUCCESSFULLY ADDED %d DIRS TO ROOT !!!!!!!!!!\n",numDirs);
         printf("!!!!!!!!!! TRYING TO ADD THE LAST DIR %d TO ROOT !!!!!!!!!!\n",numDirs+1);
         printf("%d",counter);
-        char lastName[5];
+        char lastName[10];
         sprintf(lastName, "%d",numDirs+1);
         int addRes = dir_add( *root, numDirs+1, lastName,strlen(lastName)+1);
         readi(0, root);
@@ -855,7 +920,13 @@ static void *tfs_init(struct fuse_conn_info *conn) {
         int findRes = dir_find(0, lastName, strlen(lastName)+1, dirent);
         printf("DIR ADD RES IS: %d, FIND IS: %d\n", addRes, findRes);
         printf("THE %dth FOLDER NAME IS: %s, ITS INO IS: %d\n", counter, dirent->name,dirent->ino);
-   }
+        printf("!!!!!!!!!! TRYING TO REMOVE THE LAST DIR %d FROM ROOT !!!!!!!\n",numDirs + 1);
+        int removeRes = dir_remove( *root, lastName, strlen(lastName) + 1);
+        readi(0,root);
+        findRes = dir_find(0, lastName, strlen(lastName) +1, dirent);
+        printf("DIR REMOVE IS: %d, FIND IS: %d\n",removeRes, findRes);
+        */
+    }
 
 	return NULL;
 }
